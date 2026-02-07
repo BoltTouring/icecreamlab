@@ -1,0 +1,1730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Ice Cream Lab — アイスクリームラボ</title>
+<meta name="theme-color" content="#FF5722">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        traditional: '#E5960B',
+        keto: '#00A89D',
+        sorbet: '#FF6B6B',
+        experimental: '#8B5CF6',
+        accent: '#FF5722',
+        surface: '#FAFAF7',
+      }
+    }
+  }
+}
+</script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+* { font-family: 'Inter', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
+body { background: #FAFAF7; margin: 0; padding: 0; overscroll-behavior: none; }
+input, textarea, select { font-family: inherit; }
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+@keyframes timerPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+.fade-in { animation: fadeIn 0.3s ease-out; }
+.slide-up { animation: slideUp 0.3s ease-out; }
+.timer-pulse { animation: timerPulse 1s ease-in-out infinite; }
+.cook-mode { background: #111827; color: #F9FAFB; min-height: 100vh; }
+.heat-cell { width: 13px; height: 13px; border-radius: 2px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } = React;
+
+// ══════════════════════════════════════════════
+// CONSTANTS & CONFIGURATION
+// ══════════════════════════════════════════════
+
+const CATEGORIES = ['traditional', 'keto', 'sorbet', 'experimental'];
+const CAT_COLORS = { traditional: '#E5960B', keto: '#00A89D', sorbet: '#FF6B6B', experimental: '#8B5CF6' };
+const CAT_EMOJI = { traditional: '🍦', keto: '🥑', sorbet: '🍓', experimental: '🧪' };
+const CAT_BG = { traditional: 'bg-traditional', keto: 'bg-keto', sorbet: 'bg-sorbet', experimental: 'bg-experimental' };
+const UNITS = ['g', 'ml', 'tsp', 'tbsp', 'pieces', 'drops', 'pinch'];
+const ING_CATS = ['dairy', 'sweetener', 'egg', 'flavor', 'stabilizer', 'emulsifier', 'other'];
+const RATING_LABELS = {
+  texture: ['Icy', 'Slightly icy', 'Decent', 'Smooth', 'Perfectly creamy'],
+  sweetness: ['Not sweet', 'Under-sweet', 'Just right', 'Bit sweet', 'Too sweet'],
+  scoopability: ['Rock hard', 'Very firm', 'Firm', 'Scoopable', 'Too soft'],
+  flavor: ['Off/bland', 'Weak', 'Good', 'Great', 'Excellent'],
+  overall: ['Poor', 'Below avg', 'Average', 'Good', 'Excellent']
+};
+
+const uid = () => crypto.randomUUID();
+const fmt = (d) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+// ══════════════════════════════════════════════
+// STARTER RECIPE
+// ══════════════════════════════════════════════
+
+const STARTER_RECIPE = {
+  id: "starter-vanilla-custard-001", name: "Classic Vanilla Custard (Baseline)", category: "traditional",
+  source: { type: "original", url: "", bookTitle: "", bookPage: "",
+    rawText: "Adapted from Dana Cree's custard base method (Hello, My Name Is Ice Cream) and Tsuji Culinary School fundamentals. Ratios optimized for Japanese dairy (35% cream) and 300ml home ice cream maker. This is your control recipe — make this first before experimenting." },
+  servings: 300,
+  ingredients: [
+    { id: "vc01", name: "Heavy cream 35%", nameJa: "純生クリーム 35%", amount: 150, unit: "ml", category: "dairy" },
+    { id: "vc02", name: "Whole milk", nameJa: "牛乳", amount: 100, unit: "ml", category: "dairy" },
+    { id: "vc03", name: "Granulated sugar", nameJa: "グラニュー糖", amount: 45, unit: "g", category: "sweetener" },
+    { id: "vc04", name: "Egg yolks", nameJa: "卵黄", amount: 2, unit: "pieces", category: "egg" },
+    { id: "vc05", name: "Vanilla bean paste", nameJa: "バニラビーンズペースト", amount: 3, unit: "g", category: "flavor" },
+    { id: "vc06", name: "Salt", nameJa: "塩", amount: 1, unit: "pinch", category: "other" }
+  ],
+  calculatedStats: { fatPercent: 15.5, sweetenerPercent: 15, totalSolidsPercent: 38, estimatedCostYen: 550 },
+  steps: [
+    { id: "vc-s1", order: 1, title: "Prepare ice bath", instruction: "Fill a large bowl two-thirds with ice water. Place a smaller metal or glass bowl inside it. Set aside in fridge. This will be used to rapidly cool the custard later.", timerSeconds: null, ingredients: [] },
+    { id: "vc-s2", order: 2, title: "Heat dairy", instruction: "Combine heavy cream and milk in a medium saucepan. Add vanilla bean paste and stir. Heat over medium until steaming and small bubbles form around edges (about 75°C). Do NOT boil. Remove from heat.", timerSeconds: 300, ingredients: ["vc01", "vc02", "vc05"] },
+    { id: "vc-s3", order: 3, title: "Whisk yolks and sugar", instruction: "While dairy heats, whisk egg yolks and sugar in a medium bowl until pale and slightly thickened, about 1-2 minutes. Add salt.", timerSeconds: null, ingredients: ["vc04", "vc03", "vc06"] },
+    { id: "vc-s4", order: 4, title: "Temper the eggs", instruction: "Very slowly pour about half the hot dairy mixture into the egg/sugar bowl, whisking constantly. This gradually raises the egg temperature without scrambling them. Pour slowly — patience here prevents a grainy texture.", timerSeconds: null, ingredients: [] },
+    { id: "vc-s5", order: 5, title: "Cook the custard", instruction: "Pour the tempered egg mixture back into the saucepan with remaining dairy. Cook over medium-low heat, stirring constantly with a rubber spatula, scraping the bottom and sides. Cook until the custard thickens enough to coat the back of the spatula and reaches 80-85°C. Do NOT let it boil.", timerSeconds: 480, ingredients: [] },
+    { id: "vc-s6", order: 6, title: "Strain and cool", instruction: "Immediately pour the custard through a fine-mesh strainer (こし器) into the bowl sitting in the ice bath. This removes any small cooked egg bits and ensures perfect smoothness. Stir occasionally until custard is cool to the touch (below 10°C).", timerSeconds: 600, ingredients: [] },
+    { id: "vc-s7", order: 7, title: "Cure overnight", instruction: "Cover the custard with plastic wrap pressed directly onto the surface (to prevent a skin forming). Refrigerate for at least 4 hours, preferably overnight (8-12 hours). This step is crucial — it lets the fat crystallize, proteins hydrate, and flavors develop (エージング).", timerSeconds: null, ingredients: [] },
+    { id: "vc-s8", order: 8, title: "Churn", instruction: "Stir the chilled custard. Pour into your ice cream maker. Churn until it reaches soft-serve consistency — thick, creamy, and holding its shape. Typically 20-30 minutes.", timerSeconds: 1500, ingredients: [] },
+    { id: "vc-s9", order: 9, title: "Harden", instruction: "Transfer churned ice cream to an airtight container. Press plastic wrap directly onto the surface to prevent ice crystals. Freeze for at least 3-4 hours until firm. Let sit at room temperature for 5-10 minutes before scooping.", timerSeconds: null, ingredients: [] }
+  ],
+  notes: "This is your BASELINE recipe. Make this first and rate it honestly.\n\nKey points:\n- 35% cream is standard in Japan (Takanashi is great). Targets ~15.5% fat.\n- Sugar at 15% provides good sweetness and crucial freezing point depression.\n- 2 yolks gives custard richness without being eggy.\n- The overnight cure makes a HUGE difference. Don't skip it.\n\nFor KETO: swap 45g sugar for ~35-40g allulose, add 0.3g guar gum.",
+  tags: ["vanilla", "custard-base", "baseline", "first-batch", "french-style"],
+  createdAt: "2026-02-08T00:00:00Z", updatedAt: "2026-02-08T00:00:00Z"
+};
+
+// ══════════════════════════════════════════════
+// STORAGE & DATA HOOKS
+// ══════════════════════════════════════════════
+
+const S = {
+  get: (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set: (k, v) => localStorage.setItem(k, JSON.stringify(v))
+};
+
+function useRecipes() {
+  const [recipes, setRecipes] = useState(() => S.get('icl-recipes') || [STARTER_RECIPE]);
+  useEffect(() => S.set('icl-recipes', recipes), [recipes]);
+  return {
+    recipes,
+    addRecipe: (r) => setRecipes(p => [...p, { ...r, id: uid(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }]),
+    updateRecipe: (id, u) => setRecipes(p => p.map(r => r.id === id ? { ...r, ...u, updatedAt: new Date().toISOString() } : r)),
+    deleteRecipe: (id) => setRecipes(p => p.filter(r => r.id !== id)),
+    duplicateRecipe: (id) => {
+      setRecipes(p => {
+        const orig = p.find(r => r.id === id);
+        if (!orig) return p;
+        const dup = { ...JSON.parse(JSON.stringify(orig)), id: uid(), name: orig.name + ' (copy)', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+        dup.ingredients = dup.ingredients.map(i => ({ ...i, id: uid() }));
+        dup.steps = dup.steps.map(s => ({ ...s, id: uid() }));
+        return [...p, dup];
+      });
+    },
+    importRecipe: (r) => setRecipes(p => [...p, { ...r, id: r.id || uid(), createdAt: r.createdAt || new Date().toISOString(), updatedAt: new Date().toISOString() }]),
+  };
+}
+
+function useBatches() {
+  const [batches, setBatches] = useState(() => S.get('icl-batches') || []);
+  useEffect(() => S.set('icl-batches', batches), [batches]);
+  return {
+    batches,
+    addBatch: (b) => setBatches(p => [...p, { ...b, id: uid(), createdAt: new Date().toISOString() }]),
+    updateBatch: (id, u) => setBatches(p => p.map(b => b.id === id ? { ...b, ...u } : b)),
+    deleteBatch: (id) => setBatches(p => p.filter(b => b.id !== id)),
+  };
+}
+
+// ══════════════════════════════════════════════
+// UTILITY FUNCTIONS
+// ══════════════════════════════════════════════
+
+function avgRating(batches, rid) {
+  const rb = rid ? batches.filter(b => b.recipeId === rid) : batches;
+  if (!rb.length) return 0;
+  return rb.reduce((s, b) => s + (b.ratings?.overall || 0), 0) / rb.length;
+}
+
+function batchCount(batches, rid) { return batches.filter(b => b.recipeId === rid).length; }
+function hasCafe(batches, rid) { return batches.some(b => b.recipeId === rid && b.cafeWorthy); }
+function scaleAmt(amt, orig, target) { return Math.round(amt * (target / orig) * 100) / 100; }
+
+function playBeep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator(); const g = ctx.createGain();
+    osc.connect(g); g.connect(ctx.destination);
+    osc.frequency.value = 800; osc.type = 'sine'; g.gain.value = 0.3;
+    osc.start();
+    setTimeout(() => { osc.frequency.value = 1000; }, 200);
+    setTimeout(() => { osc.frequency.value = 800; }, 400);
+    setTimeout(() => { osc.stop(); ctx.close(); }, 600);
+  } catch {}
+}
+
+function getStepIngredients(step, allIngredients) {
+  if (!step.ingredients?.length) return [];
+  return step.ingredients.map(iid => allIngredients.find(i => i.id === iid)).filter(Boolean);
+}
+
+
+// ══════════════════════════════════════════════
+// SHARED COMPONENTS
+// ══════════════════════════════════════════════
+
+function Stars({ rating, size = 18, onChange }) {
+  return (
+    <div className="flex gap-0.5 items-center">
+      {[1,2,3,4,5].map(i => (
+        <button key={i} onClick={() => onChange?.(i)} className={`${onChange ? 'cursor-pointer' : 'cursor-default'}`}
+          style={{ fontSize: size, lineHeight: 1, color: i <= Math.round(rating) ? '#FBBF24' : '#D1D5DB', background: 'none', border: 'none', padding: 0 }}>★</button>
+      ))}
+    </div>
+  );
+}
+
+function CatBadge({ category, small }) {
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-white font-semibold ${small ? 'text-xs' : 'text-xs'}`}
+      style={{ background: CAT_COLORS[category] || '#888' }}>
+      {CAT_EMOJI[category]} {category}
+    </span>
+  );
+}
+
+function CafeBadge() {
+  return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500 text-white text-xs font-semibold">☕ cafe worthy</span>;
+}
+
+function Modal({ open, onClose, title, children, wide }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
+      <div className="fixed inset-0 bg-black/40" />
+      <div className={`relative bg-white rounded-t-2xl sm:rounded-2xl ${wide ? 'w-full max-w-2xl' : 'w-full max-w-lg'} max-h-[90vh] overflow-y-auto slide-up`}
+        onClick={e => e.stopPropagation()}>
+        <div className="sticky top-0 bg-white rounded-t-2xl border-b px-5 py-4 flex items-center justify-between z-10">
+          <h2 className="text-lg font-bold">{title}</h2>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-xl">×</button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Confirm({ open, onClose, onConfirm, title, message }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl p-6 max-w-sm w-full fade-in">
+        <h3 className="font-bold text-lg mb-2">{title}</h3>
+        <p className="text-gray-600 mb-5">{message}</p>
+        <div className="flex gap-3 justify-end">
+          <button onClick={onClose} className="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-100 font-medium">Cancel</button>
+          <button onClick={() => { onConfirm(); onClose(); }} className="px-4 py-2 rounded-xl bg-red-500 text-white font-medium hover:bg-red-600">Delete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RatingSlider({ value, onChange, labels, label }) {
+  return (
+    <div className="mb-3">
+      <div className="flex justify-between items-center mb-1">
+        <span className="text-sm font-medium text-gray-700">{label}</span>
+        <span className="text-sm font-semibold" style={{ color: value >= 4 ? '#22C55E' : value >= 3 ? '#F59E0B' : '#EF4444' }}>
+          {value ? labels[value - 1] : '—'}
+        </span>
+      </div>
+      <div className="flex gap-1.5">
+        {[1,2,3,4,5].map(i => (
+          <button key={i} onClick={() => onChange(i)}
+            className={`flex-1 h-9 rounded-lg font-semibold text-sm transition-all ${i === value ? 'text-white shadow-md scale-105' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+            style={i === value ? { background: i >= 4 ? '#22C55E' : i >= 3 ? '#F59E0B' : '#EF4444' } : {}}>
+            {i}
+          </button>
+        ))}
+      </div>
+      <div className="flex justify-between mt-0.5">
+        <span className="text-[10px] text-gray-400">{labels[0]}</span>
+        <span className="text-[10px] text-gray-400">{labels[4]}</span>
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ emoji, title, desc, action, onAction }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 px-8 text-center">
+      <div className="text-5xl mb-4">{emoji}</div>
+      <h3 className="text-lg font-bold text-gray-700 mb-1">{title}</h3>
+      <p className="text-gray-500 text-sm mb-6">{desc}</p>
+      {action && <button onClick={onAction} className="px-5 py-2.5 bg-accent text-white rounded-xl font-semibold hover:opacity-90">{action}</button>}
+    </div>
+  );
+}
+
+function Tabs({ tabs, active, onChange }) {
+  return (
+    <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-4">
+      {tabs.map(t => (
+        <button key={t.key} onClick={() => onChange(t.key)}
+          className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold transition-all ${active === t.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}>
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function FAB({ onClick, label }) {
+  return (
+    <button onClick={onClick}
+      className="fixed bottom-24 right-5 z-30 w-14 h-14 rounded-full bg-accent text-white shadow-lg hover:shadow-xl flex items-center justify-center text-2xl font-bold transition-all hover:scale-105 active:scale-95"
+      title={label}>+</button>
+  );
+}
+
+function BackBtn({ onClick, label }) {
+  return (
+    <button onClick={onClick} className="flex items-center gap-1 text-accent font-semibold text-sm mb-4 hover:opacity-80">
+      <span className="text-lg">‹</span> {label || 'Back'}
+    </button>
+  );
+}
+
+// ══════════════════════════════════════════════
+// RECIPES TAB
+// ══════════════════════════════════════════════
+
+function RecipeCard({ recipe, batches, onClick }) {
+  const avg = avgRating(batches, recipe.id);
+  const count = batchCount(batches, recipe.id);
+  const cafe = hasCafe(batches, recipe.id);
+  return (
+    <div onClick={onClick} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition-all fade-in"
+      style={{ borderLeftWidth: 4, borderLeftColor: CAT_COLORS[recipe.category] }}>
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <h3 className="font-bold text-gray-900 leading-tight">{recipe.name}</h3>
+        <CatBadge category={recipe.category} small />
+      </div>
+      <div className="flex items-center gap-3 text-sm text-gray-500">
+        {avg > 0 && <div className="flex items-center gap-1"><Stars rating={avg} size={14} /><span className="font-medium">{avg.toFixed(1)}</span></div>}
+        {count > 0 && <span>{count} batch{count > 1 ? 'es' : ''}</span>}
+        {cafe && <CafeBadge />}
+      </div>
+      {recipe.tags?.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {recipe.tags.slice(0, 4).map(t => <span key={t} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">#{t}</span>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RecipeList({ recipes, batches, onSelect, onAdd }) {
+  const [filter, setFilter] = useState('all');
+  const [sort, setSort] = useState('newest');
+  const [search, setSearch] = useState('');
+
+  const filtered = useMemo(() => {
+    let r = [...recipes];
+    if (filter !== 'all') r = r.filter(x => x.category === filter);
+    if (search) {
+      const s = search.toLowerCase();
+      r = r.filter(x => x.name.toLowerCase().includes(s) || x.tags?.some(t => t.toLowerCase().includes(s)));
+    }
+    switch (sort) {
+      case 'name': r.sort((a, b) => a.name.localeCompare(b.name)); break;
+      case 'rating': r.sort((a, b) => avgRating(batches, b.id) - avgRating(batches, a.id)); break;
+      case 'most-made': r.sort((a, b) => batchCount(batches, b.id) - batchCount(batches, a.id)); break;
+      default: r.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    }
+    return r;
+  }, [recipes, batches, filter, sort, search]);
+
+  return (
+    <div className="pb-4">
+      <div className="mb-4">
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search recipes or tags..."
+          className="w-full px-4 py-2.5 bg-white rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30" />
+      </div>
+      <div className="flex gap-2 mb-3 overflow-x-auto pb-1 -mx-1 px-1">
+        {['all', ...CATEGORIES].map(c => (
+          <button key={c} onClick={() => setFilter(c)}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${filter === c ? 'text-white' : 'bg-gray-100 text-gray-600'}`}
+            style={filter === c ? { background: c === 'all' ? '#FF5722' : CAT_COLORS[c] } : {}}>
+            {c === 'all' ? 'All' : `${CAT_EMOJI[c]} ${c}`}
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-2 mb-4">
+        {[['newest','Newest'],['name','Name'],['rating','Rating'],['most-made','Most made']].map(([k,l]) => (
+          <button key={k} onClick={() => setSort(k)}
+            className={`px-3 py-1 rounded-lg text-xs font-medium ${sort === k ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-500'}`}>{l}</button>
+        ))}
+      </div>
+      {filtered.length === 0 ? (
+        <EmptyState emoji="📖" title="No recipes yet" desc="Add your first recipe to get started" action="Add Recipe" onAction={onAdd} />
+      ) : (
+        <div className="grid gap-3">{filtered.map(r => <RecipeCard key={r.id} recipe={r} batches={batches} onClick={() => onSelect(r.id)} />)}</div>
+      )}
+      <FAB onClick={onAdd} label="Add recipe" />
+    </div>
+  );
+}
+
+function RecipeDetail({ recipe, batches, onBack, onEdit, onDuplicate, onDelete, onCook, onViewBatches, onExport }) {
+  const [scale, setScale] = useState(recipe.servings);
+  const [showDel, setShowDel] = useState(false);
+  const avg = avgRating(batches, recipe.id);
+  const count = batchCount(batches, recipe.id);
+
+  return (
+    <div className="pb-20 fade-in">
+      <BackBtn onClick={onBack} />
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4" style={{ borderTopWidth: 4, borderTopColor: CAT_COLORS[recipe.category] }}>
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 mb-1">{recipe.name}</h2>
+            <CatBadge category={recipe.category} />
+          </div>
+          <div className="flex gap-1">
+            <button onClick={onEdit} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500" title="Edit">✏️</button>
+            <button onClick={onDuplicate} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500" title="Duplicate">📋</button>
+            <button onClick={onExport} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500" title="Export JSON">📤</button>
+            <button onClick={() => setShowDel(true)} className="p-2 rounded-lg hover:bg-gray-100 text-red-400" title="Delete">🗑️</button>
+          </div>
+        </div>
+        {avg > 0 && <div className="flex items-center gap-2 mb-2"><Stars rating={avg} size={16} /><span className="text-sm font-semibold text-gray-600">{avg.toFixed(1)} ({count} batch{count !== 1 ? 'es' : ''})</span></div>}
+
+        {recipe.calculatedStats && (recipe.calculatedStats.fatPercent || recipe.calculatedStats.sweetenerPercent || recipe.calculatedStats.totalSolidsPercent) && (
+          <div className="flex gap-3 mb-3 flex-wrap">
+            {recipe.calculatedStats.fatPercent && <div className="bg-blue-50 px-3 py-1.5 rounded-lg"><span className="text-xs text-blue-600 font-semibold">Fat {recipe.calculatedStats.fatPercent}%</span></div>}
+            {recipe.calculatedStats.sweetenerPercent && <div className="bg-amber-50 px-3 py-1.5 rounded-lg"><span className="text-xs text-amber-600 font-semibold">Sweet {recipe.calculatedStats.sweetenerPercent}%</span></div>}
+            {recipe.calculatedStats.totalSolidsPercent && <div className="bg-green-50 px-3 py-1.5 rounded-lg"><span className="text-xs text-green-600 font-semibold">Solids {recipe.calculatedStats.totalSolidsPercent}%</span></div>}
+            {recipe.calculatedStats.estimatedCostYen && <div className="bg-purple-50 px-3 py-1.5 rounded-lg"><span className="text-xs text-purple-600 font-semibold">¥{recipe.calculatedStats.estimatedCostYen}</span></div>}
+          </div>
+        )}
+      </div>
+
+      {/* Ingredients */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-bold text-gray-900">Ingredients</h3>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">Batch:</span>
+            <input type="number" value={scale} onChange={e => setScale(+e.target.value || recipe.servings)} min={50} step={50}
+              className="w-20 px-2 py-1 border rounded-lg text-sm text-center font-semibold" />
+            <span className="text-xs text-gray-500">ml</span>
+          </div>
+        </div>
+        <div className="divide-y">
+          {recipe.ingredients.map(ing => (
+            <div key={ing.id} className="py-2 flex items-center justify-between">
+              <div>
+                <span className="font-medium text-gray-900">{ing.name}</span>
+                {ing.nameJa && <span className="text-xs text-gray-400 ml-2">{ing.nameJa}</span>}
+              </div>
+              <span className="font-semibold text-accent">{scaleAmt(ing.amount, recipe.servings, scale)} {ing.unit}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Steps */}
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
+        <h3 className="font-bold text-gray-900 mb-3">Steps</h3>
+        <div className="space-y-4">
+          {recipe.steps.sort((a,b) => a.order - b.order).map((step, i) => (
+            <div key={step.id} className="flex gap-3">
+              <div className="w-7 h-7 rounded-full bg-accent/10 text-accent flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">{i + 1}</div>
+              <div className="flex-1">
+                <div className="font-semibold text-gray-900 mb-0.5">{step.title}</div>
+                <p className="text-sm text-gray-600 leading-relaxed">{step.instruction}</p>
+                {step.timerSeconds && <span className="inline-flex items-center gap-1 text-xs text-accent font-semibold mt-1">⏱ {Math.round(step.timerSeconds / 60)} min</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Notes & Source */}
+      {recipe.notes && (
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
+          <h3 className="font-bold text-gray-900 mb-2">Notes</h3>
+          <p className="text-sm text-gray-600 whitespace-pre-line">{recipe.notes}</p>
+        </div>
+      )}
+      {recipe.source?.rawText && (
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
+          <h3 className="font-bold text-gray-900 mb-2">Source</h3>
+          {recipe.source.type === 'url' && recipe.source.url && <a href={recipe.source.url} target="_blank" className="text-accent text-sm underline break-all">{recipe.source.url}</a>}
+          {recipe.source.type === 'book' && <p className="text-sm text-gray-600">{recipe.source.bookTitle} p.{recipe.source.bookPage}</p>}
+          <p className="text-sm text-gray-500 mt-1 whitespace-pre-line">{recipe.source.rawText}</p>
+        </div>
+      )}
+
+      {recipe.tags?.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {recipe.tags.map(t => <span key={t} className="text-xs bg-gray-100 text-gray-600 px-3 py-1 rounded-full">#{t}</span>)}
+        </div>
+      )}
+
+      {/* Action buttons */}
+      <div className="flex gap-3">
+        <button onClick={onCook} className="flex-1 py-3 bg-accent text-white rounded-xl font-bold text-base hover:opacity-90 active:scale-[0.98] transition-all">
+          🔥 Start Cooking
+        </button>
+        <button onClick={onViewBatches} className="px-5 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200">
+          📋 Batches ({count})
+        </button>
+      </div>
+
+      <Confirm open={showDel} onClose={() => setShowDel(false)} onConfirm={onDelete}
+        title="Delete recipe?" message={`"${recipe.name}" will be permanently removed.`} />
+    </div>
+  );
+}
+
+function RecipeForm({ recipe, onSave, onBack }) {
+  const isEdit = !!recipe;
+  const [mode, setMode] = useState('structured');
+  const [name, setName] = useState(recipe?.name || '');
+  const [category, setCategory] = useState(recipe?.category || 'traditional');
+  const [servings, setServings] = useState(recipe?.servings || 300);
+  const [ingredients, setIngredients] = useState(recipe?.ingredients || [{ id: uid(), name: '', nameJa: '', amount: 0, unit: 'g', category: 'dairy' }]);
+  const [steps, setSteps] = useState(recipe?.steps || [{ id: uid(), order: 1, title: '', instruction: '', timerSeconds: null, ingredients: [] }]);
+  const [notes, setNotes] = useState(recipe?.notes || '');
+  const [tags, setTags] = useState(recipe?.tags?.join(', ') || '');
+  const [sourceType, setSourceType] = useState(recipe?.source?.type || 'original');
+  const [sourceUrl, setSourceUrl] = useState(recipe?.source?.url || '');
+  const [sourceBook, setSourceBook] = useState(recipe?.source?.bookTitle || '');
+  const [sourcePage, setSourcePage] = useState(recipe?.source?.bookPage || '');
+  const [rawText, setRawText] = useState(recipe?.source?.rawText || '');
+  const [fatPct, setFatPct] = useState(recipe?.calculatedStats?.fatPercent || '');
+  const [sweetPct, setSweetPct] = useState(recipe?.calculatedStats?.sweetenerPercent || '');
+  const [solidsPct, setSolidsPct] = useState(recipe?.calculatedStats?.totalSolidsPercent || '');
+  const [costYen, setCostYen] = useState(recipe?.calculatedStats?.estimatedCostYen || '');
+
+  const addIng = () => setIngredients(p => [...p, { id: uid(), name: '', nameJa: '', amount: 0, unit: 'g', category: 'dairy' }]);
+  const rmIng = (id) => setIngredients(p => p.filter(i => i.id !== id));
+  const updIng = (id, field, val) => setIngredients(p => p.map(i => i.id === id ? { ...i, [field]: val } : i));
+  const addStep = () => setSteps(p => [...p, { id: uid(), order: p.length + 1, title: '', instruction: '', timerSeconds: null, ingredients: [] }]);
+  const rmStep = (id) => setSteps(p => p.filter(s => s.id !== id).map((s, i) => ({ ...s, order: i + 1 })));
+  const updStep = (id, field, val) => setSteps(p => p.map(s => s.id === id ? { ...s, [field]: val } : s));
+
+  const handleSave = () => {
+    if (!name.trim()) return alert('Recipe name is required');
+    onSave({
+      ...(recipe || {}),
+      name: name.trim(), category, servings,
+      ingredients: ingredients.filter(i => i.name.trim()),
+      steps: steps.filter(s => s.instruction.trim()).map((s, i) => ({ ...s, order: i + 1 })),
+      notes, tags: tags.split(',').map(t => t.trim()).filter(Boolean),
+      source: { type: sourceType, url: sourceUrl, bookTitle: sourceBook, bookPage: sourcePage, rawText },
+      calculatedStats: { fatPercent: fatPct ? +fatPct : null, sweetenerPercent: sweetPct ? +sweetPct : null, totalSolidsPercent: solidsPct ? +solidsPct : null, estimatedCostYen: costYen ? +costYen : null }
+    });
+  };
+
+  return (
+    <div className="pb-20 fade-in">
+      <BackBtn onClick={onBack} />
+      <h2 className="text-xl font-bold mb-4">{isEdit ? 'Edit Recipe' : 'New Recipe'}</h2>
+
+      <Tabs tabs={[{key:'structured',label:'Structured'},{key:'paste',label:'Paste & Structure'}]} active={mode} onChange={setMode} />
+
+      {mode === 'paste' && (
+        <div className="mb-4">
+          <label className="text-sm font-semibold text-gray-700 mb-1 block">Paste raw recipe text</label>
+          <textarea value={rawText} onChange={e => setRawText(e.target.value)} rows={6}
+            className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-accent/30 focus:outline-none"
+            placeholder="Paste a recipe from a URL, book, or conversation with Claude..." />
+        </div>
+      )}
+
+      {/* Basic info */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4 space-y-3">
+        <div>
+          <label className="text-sm font-semibold text-gray-700 mb-1 block">Name *</label>
+          <input value={name} onChange={e => setName(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-accent/30 focus:outline-none" />
+        </div>
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <label className="text-sm font-semibold text-gray-700 mb-1 block">Category</label>
+            <select value={category} onChange={e => setCategory(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm bg-white">
+              {CATEGORIES.map(c => <option key={c} value={c}>{CAT_EMOJI[c]} {c}</option>)}
+            </select>
+          </div>
+          <div className="w-28">
+            <label className="text-sm font-semibold text-gray-700 mb-1 block">Batch (ml)</label>
+            <input type="number" value={servings} onChange={e => setServings(+e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm" />
+          </div>
+        </div>
+        <div>
+          <label className="text-sm font-semibold text-gray-700 mb-1 block">Source</label>
+          <select value={sourceType} onChange={e => setSourceType(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm bg-white mb-2">
+            <option value="original">Original</option><option value="url">URL</option><option value="book">Book</option><option value="pasted">Pasted</option>
+          </select>
+          {sourceType === 'url' && <input value={sourceUrl} onChange={e => setSourceUrl(e.target.value)} placeholder="https://..." className="w-full px-3 py-2 border rounded-xl text-sm" />}
+          {sourceType === 'book' && <div className="flex gap-2"><input value={sourceBook} onChange={e => setSourceBook(e.target.value)} placeholder="Book title" className="flex-1 px-3 py-2 border rounded-xl text-sm" /><input value={sourcePage} onChange={e => setSourcePage(e.target.value)} placeholder="Page" className="w-20 px-3 py-2 border rounded-xl text-sm" /></div>}
+        </div>
+      </div>
+
+      {/* Ingredients */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4">
+        <h3 className="font-bold text-gray-900 mb-3">Ingredients</h3>
+        {ingredients.map((ing, i) => (
+          <div key={ing.id} className="flex flex-wrap gap-2 mb-3 pb-3 border-b border-gray-50 items-end">
+            <div className="flex-1 min-w-[120px]"><label className="text-xs text-gray-500">Name</label><input value={ing.name} onChange={e => updIng(ing.id, 'name', e.target.value)} className="w-full px-2 py-1.5 border rounded-lg text-sm" /></div>
+            <div className="w-24"><label className="text-xs text-gray-500">Japanese</label><input value={ing.nameJa} onChange={e => updIng(ing.id, 'nameJa', e.target.value)} className="w-full px-2 py-1.5 border rounded-lg text-sm" /></div>
+            <div className="w-16"><label className="text-xs text-gray-500">Amt</label><input type="number" value={ing.amount} onChange={e => updIng(ing.id, 'amount', +e.target.value)} className="w-full px-2 py-1.5 border rounded-lg text-sm" /></div>
+            <div className="w-16"><label className="text-xs text-gray-500">Unit</label><select value={ing.unit} onChange={e => updIng(ing.id, 'unit', e.target.value)} className="w-full px-1 py-1.5 border rounded-lg text-xs bg-white">{UNITS.map(u => <option key={u}>{u}</option>)}</select></div>
+            <div className="w-24"><label className="text-xs text-gray-500">Type</label><select value={ing.category} onChange={e => updIng(ing.id, 'category', e.target.value)} className="w-full px-1 py-1.5 border rounded-lg text-xs bg-white">{ING_CATS.map(c => <option key={c}>{c}</option>)}</select></div>
+            <button onClick={() => rmIng(ing.id)} className="text-red-400 text-lg pb-1 hover:text-red-600">×</button>
+          </div>
+        ))}
+        <button onClick={addIng} className="text-accent text-sm font-semibold hover:underline">+ Add ingredient</button>
+      </div>
+
+      {/* Steps */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4">
+        <h3 className="font-bold text-gray-900 mb-3">Steps</h3>
+        {steps.map((step, i) => (
+          <div key={step.id} className="mb-4 pb-4 border-b border-gray-50">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="w-6 h-6 rounded-full bg-accent/10 text-accent text-xs font-bold flex items-center justify-center">{i + 1}</span>
+              <input value={step.title} onChange={e => updStep(step.id, 'title', e.target.value)} placeholder="Step title" className="flex-1 px-2 py-1.5 border rounded-lg text-sm font-semibold" />
+              <button onClick={() => rmStep(step.id)} className="text-red-400 hover:text-red-600">×</button>
+            </div>
+            <textarea value={step.instruction} onChange={e => updStep(step.id, 'instruction', e.target.value)} placeholder="Instructions..." rows={2}
+              className="w-full px-2 py-1.5 border rounded-lg text-sm mb-2" />
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-500">Timer (sec):</label>
+              <input type="number" value={step.timerSeconds || ''} onChange={e => updStep(step.id, 'timerSeconds', e.target.value ? +e.target.value : null)}
+                placeholder="—" className="w-20 px-2 py-1 border rounded-lg text-sm" />
+            </div>
+          </div>
+        ))}
+        <button onClick={addStep} className="text-accent text-sm font-semibold hover:underline">+ Add step</button>
+      </div>
+
+      {/* Stats */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4">
+        <h3 className="font-bold text-gray-900 mb-3">Calculated Stats (optional)</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div><label className="text-xs text-gray-500">Fat %</label><input type="number" value={fatPct} onChange={e => setFatPct(e.target.value)} className="w-full px-2 py-1.5 border rounded-lg text-sm" /></div>
+          <div><label className="text-xs text-gray-500">Sweetener %</label><input type="number" value={sweetPct} onChange={e => setSweetPct(e.target.value)} className="w-full px-2 py-1.5 border rounded-lg text-sm" /></div>
+          <div><label className="text-xs text-gray-500">Total Solids %</label><input type="number" value={solidsPct} onChange={e => setSolidsPct(e.target.value)} className="w-full px-2 py-1.5 border rounded-lg text-sm" /></div>
+          <div><label className="text-xs text-gray-500">Cost ¥</label><input type="number" value={costYen} onChange={e => setCostYen(e.target.value)} className="w-full px-2 py-1.5 border rounded-lg text-sm" /></div>
+        </div>
+      </div>
+
+      {/* Notes & Tags */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4 space-y-3">
+        <div><label className="text-sm font-semibold text-gray-700 mb-1 block">Notes</label><textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} className="w-full px-3 py-2 border rounded-xl text-sm" /></div>
+        <div><label className="text-sm font-semibold text-gray-700 mb-1 block">Tags (comma separated)</label><input value={tags} onChange={e => setTags(e.target.value)} placeholder="vanilla, custard-base" className="w-full px-3 py-2 border rounded-xl text-sm" /></div>
+      </div>
+
+      <button onClick={handleSave} className="w-full py-3 bg-accent text-white rounded-xl font-bold text-base hover:opacity-90">{isEdit ? 'Save Changes' : 'Create Recipe'}</button>
+    </div>
+  );
+}
+
+function JsonImportModal({ open, onClose, onImport }) {
+  const [json, setJson] = useState('');
+  const [error, setError] = useState('');
+  const [preview, setPreview] = useState(null);
+
+  const handleParse = () => {
+    try {
+      const parsed = JSON.parse(json);
+      if (!parsed.name || !parsed.ingredients) throw new Error('Missing required fields (name, ingredients)');
+      setPreview(parsed);
+      setError('');
+    } catch (e) { setError(e.message); setPreview(null); }
+  };
+
+  const handleImport = () => {
+    if (preview) { onImport(preview); onClose(); setJson(''); setPreview(null); }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Import Recipe (JSON)" wide>
+      <textarea value={json} onChange={e => { setJson(e.target.value); setError(''); setPreview(null); }}
+        rows={10} placeholder="Paste recipe JSON here..." className="w-full px-3 py-2 border rounded-xl text-sm font-mono mb-3 focus:ring-2 focus:ring-accent/30 focus:outline-none" />
+      {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
+      {preview && (
+        <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-3">
+          <h4 className="font-bold text-green-800 mb-1">{preview.name}</h4>
+          <p className="text-sm text-green-700">{preview.category} · {preview.ingredients?.length} ingredients · {preview.steps?.length} steps</p>
+        </div>
+      )}
+      <div className="flex gap-3">
+        {!preview && <button onClick={handleParse} className="flex-1 py-2 bg-gray-800 text-white rounded-xl font-semibold">Validate JSON</button>}
+        {preview && <button onClick={handleImport} className="flex-1 py-2 bg-accent text-white rounded-xl font-semibold">Import Recipe</button>}
+      </div>
+    </Modal>
+  );
+}
+
+function RecipesTab({ recipes, batches, nav, addRecipe, updateRecipe, deleteRecipe, duplicateRecipe, importRecipe }) {
+  const [view, setView] = useState('list');
+  const [selectedId, setSelectedId] = useState(null);
+  const [editId, setEditId] = useState(null);
+  const [showImport, setShowImport] = useState(false);
+  const [showAddMenu, setShowAddMenu] = useState(false);
+
+  const selected = recipes.find(r => r.id === selectedId);
+  const editing = editId ? recipes.find(r => r.id === editId) : null;
+
+  if (view === 'detail' && selected) return (
+    <RecipeDetail recipe={selected} batches={batches} onBack={() => setView('list')}
+      onEdit={() => { setEditId(selected.id); setView('form'); }}
+      onDuplicate={() => { duplicateRecipe(selected.id); setView('list'); }}
+      onDelete={() => { deleteRecipe(selected.id); setView('list'); }}
+      onCook={() => nav('cook', 'active', { recipeId: selected.id })}
+      onViewBatches={() => nav('log', 'list', { recipeFilter: selected.id })}
+      onExport={() => {
+        const blob = new Blob([JSON.stringify(selected, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${selected.name.replace(/\s+/g, '-')}.json`; a.click();
+      }} />
+  );
+
+  if (view === 'form') return (
+    <RecipeForm recipe={editing} onBack={() => { setView(editing ? 'detail' : 'list'); setEditId(null); }}
+      onSave={(data) => {
+        if (editing) { updateRecipe(editing.id, data); setView('detail'); }
+        else { addRecipe(data); setView('list'); }
+        setEditId(null);
+      }} />
+  );
+
+  return (
+    <>
+      <RecipeList recipes={recipes} batches={batches}
+        onSelect={(id) => { setSelectedId(id); setView('detail'); }}
+        onAdd={() => setShowAddMenu(true)} />
+      {showAddMenu && (
+        <div className="fixed inset-0 z-40" onClick={() => setShowAddMenu(false)}>
+          <div className="fixed inset-0 bg-black/20" />
+          <div className="fixed bottom-28 right-5 bg-white rounded-2xl shadow-xl p-2 z-50 fade-in w-52" onClick={e => e.stopPropagation()}>
+            <button onClick={() => { setShowAddMenu(false); setEditId(null); setView('form'); }} className="w-full px-4 py-3 text-left text-sm font-semibold hover:bg-gray-50 rounded-xl">📝 New Recipe</button>
+            <button onClick={() => { setShowAddMenu(false); setShowImport(true); }} className="w-full px-4 py-3 text-left text-sm font-semibold hover:bg-gray-50 rounded-xl">📥 Import JSON</button>
+          </div>
+        </div>
+      )}
+      <JsonImportModal open={showImport} onClose={() => setShowImport(false)} onImport={importRecipe} />
+    </>
+  );
+}
+
+// ══════════════════════════════════════════════
+// COOK TAB
+// ══════════════════════════════════════════════
+
+function CookTimer({ seconds, onDone }) {
+  const [remaining, setRemaining] = useState(seconds);
+  const [running, setRunning] = useState(false);
+  const intervalRef = useRef(null);
+
+  useEffect(() => {
+    if (running && remaining > 0) {
+      intervalRef.current = setInterval(() => {
+        setRemaining(p => {
+          if (p <= 1) { clearInterval(intervalRef.current); setRunning(false); playBeep(); onDone?.(); return 0; }
+          return p - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(intervalRef.current);
+  }, [running]);
+
+  const mins = Math.floor(remaining / 60);
+  const secs = remaining % 60;
+  const pct = remaining / seconds;
+  const r = 54, circ = 2 * Math.PI * r;
+
+  return (
+    <div className="flex flex-col items-center gap-3 my-4">
+      <div className={`relative w-36 h-36 ${running && remaining > 0 ? 'timer-pulse' : ''}`}>
+        <svg width="144" height="144" className="transform -rotate-90">
+          <circle cx="72" cy="72" r={r} fill="none" stroke="#374151" strokeWidth="8" />
+          <circle cx="72" cy="72" r={r} fill="none" stroke={remaining === 0 ? '#22C55E' : '#FF5722'} strokeWidth="8"
+            strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)} strokeLinecap="round"
+            className="transition-all duration-1000 ease-linear" />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center">
+          <span className="text-3xl font-mono font-bold text-white">{String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}</span>
+        </div>
+      </div>
+      <div className="flex gap-3">
+        {remaining > 0 ? (
+          <button onClick={() => setRunning(!running)}
+            className={`px-8 py-3 rounded-xl font-bold text-base ${running ? 'bg-amber-500 text-white' : 'bg-accent text-white'}`}>
+            {running ? '⏸ Pause' : '▶ Start'}
+          </button>
+        ) : (
+          <div className="px-8 py-3 rounded-xl bg-green-500 text-white font-bold text-base">✓ Done!</div>
+        )}
+        <button onClick={() => { setRemaining(seconds); setRunning(false); clearInterval(intervalRef.current); }}
+          className="px-4 py-3 rounded-xl bg-gray-700 text-gray-300 font-semibold">↻</button>
+      </div>
+    </div>
+  );
+}
+
+function CookMode({ recipe, onExit, onLogBatch }) {
+  const [step, setStep] = useState(0);
+  const [completed, setCompleted] = useState(new Set());
+  const [showIngredients, setShowIngredients] = useState(false);
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [finished, setFinished] = useState(false);
+  const wakeLock = useRef(null);
+  const sorted = [...recipe.steps].sort((a, b) => a.order - b.order);
+  const current = sorted[step];
+  const stepIngs = getStepIngredients(current, recipe.ingredients);
+
+  useEffect(() => {
+    (async () => { try { wakeLock.current = await navigator.wakeLock?.request('screen'); } catch {} })();
+    return () => { wakeLock.current?.release(); };
+  }, []);
+
+  if (finished) return (
+    <div className="cook-mode flex flex-col items-center justify-center p-8 text-center min-h-screen">
+      <div className="text-6xl mb-6">🎉</div>
+      <h2 className="text-2xl font-bold mb-2">All done!</h2>
+      <p className="text-gray-400 mb-8">How did it go? Log this batch to track your progress.</p>
+      <button onClick={onLogBatch} className="px-8 py-4 bg-accent text-white rounded-2xl font-bold text-lg mb-4 hover:opacity-90">📋 Log This Batch</button>
+      <button onClick={onExit} className="text-gray-500 hover:text-gray-300">Skip for now</button>
+    </div>
+  );
+
+  return (
+    <div className="cook-mode min-h-screen flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+        <button onClick={() => setShowExitConfirm(true)} className="text-gray-400 hover:text-white font-semibold text-sm">✕ Exit</button>
+        <span className="text-sm text-gray-400 font-medium">{recipe.name}</span>
+        <button onClick={() => setShowIngredients(true)} className="text-accent font-semibold text-sm">📋 All</button>
+      </div>
+
+      {/* Progress bar */}
+      <div className="flex gap-1 px-4 py-3">
+        {sorted.map((s, i) => (
+          <div key={s.id} className={`flex-1 h-1.5 rounded-full transition-all ${i < step ? 'bg-green-500' : i === step ? 'bg-accent' : 'bg-gray-700'}`} />
+        ))}
+      </div>
+
+      {/* Step content */}
+      <div className="flex-1 px-6 py-4 overflow-y-auto">
+        <div className="text-accent font-bold text-sm mb-2">Step {step + 1} of {sorted.length}</div>
+        <h2 className="text-2xl font-bold mb-4">{current.title}</h2>
+
+        {stepIngs.length > 0 && (
+          <div className="bg-gray-800/50 rounded-xl p-4 mb-4">
+            {stepIngs.map(ing => (
+              <div key={ing.id} className="flex justify-between py-1 text-sm">
+                <span className="text-gray-300">{ing.name}</span>
+                <span className="text-accent font-bold">{ing.amount} {ing.unit}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <p className="text-lg leading-relaxed text-gray-200 mb-6">{current.instruction}</p>
+
+        {current.timerSeconds && <CookTimer seconds={current.timerSeconds} onDone={() => {}} />}
+      </div>
+
+      {/* Navigation */}
+      <div className="px-4 py-4 border-t border-gray-800 flex gap-3">
+        <button onClick={() => step > 0 && setStep(step - 1)} disabled={step === 0}
+          className={`px-6 py-4 rounded-xl font-bold text-base ${step === 0 ? 'bg-gray-800 text-gray-600' : 'bg-gray-700 text-white'}`}>‹ Prev</button>
+        {step < sorted.length - 1 ? (
+          <button onClick={() => { setCompleted(p => new Set(p).add(step)); setStep(step + 1); }}
+            className="flex-1 py-4 bg-accent text-white rounded-xl font-bold text-lg hover:opacity-90 active:scale-[0.98]">
+            Done ✓ Next
+          </button>
+        ) : (
+          <button onClick={() => { setCompleted(p => new Set(p).add(step)); setFinished(true); }}
+            className="flex-1 py-4 bg-green-500 text-white rounded-xl font-bold text-lg hover:opacity-90 active:scale-[0.98]">
+            Finish! ✓
+          </button>
+        )}
+      </div>
+
+      {/* Ingredients overlay */}
+      {showIngredients && (
+        <div className="fixed inset-0 z-50 bg-gray-900/95 flex flex-col">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
+            <h3 className="font-bold text-lg">All Ingredients</h3>
+            <button onClick={() => setShowIngredients(false)} className="text-gray-400 hover:text-white text-xl">×</button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-5 py-4">
+            {recipe.ingredients.map(ing => (
+              <div key={ing.id} className="flex justify-between py-2.5 border-b border-gray-800">
+                <div>
+                  <span className="text-gray-200">{ing.name}</span>
+                  {ing.nameJa && <span className="text-gray-500 text-sm ml-2">{ing.nameJa}</span>}
+                </div>
+                <span className="text-accent font-bold">{ing.amount} {ing.unit}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Exit confirm */}
+      {showExitConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/60" onClick={() => setShowExitConfirm(false)} />
+          <div className="relative bg-gray-800 rounded-2xl p-6 max-w-sm w-full">
+            <h3 className="font-bold text-lg mb-2">Exit cook mode?</h3>
+            <p className="text-gray-400 mb-5">Your progress won't be saved.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setShowExitConfirm(false)} className="flex-1 py-3 rounded-xl bg-gray-700 text-white font-semibold">Stay</button>
+              <button onClick={onExit} className="flex-1 py-3 rounded-xl bg-red-500 text-white font-semibold">Exit</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CookTab({ recipes, batches, nav, initialRecipeId }) {
+  const [selectedId, setSelectedId] = useState(initialRecipeId || null);
+  const [cooking, setCooking] = useState(!!initialRecipeId);
+  const [search, setSearch] = useState('');
+
+  const recipe = recipes.find(r => r.id === selectedId);
+
+  if (cooking && recipe) return (
+    <CookMode recipe={recipe} onExit={() => { setCooking(false); setSelectedId(null); }}
+      onLogBatch={() => nav('log', 'add', { recipeId: recipe.id })} />
+  );
+
+  const filtered = search ? recipes.filter(r => r.name.toLowerCase().includes(search.toLowerCase())) : recipes;
+
+  return (
+    <div className="pb-20">
+      <h2 className="text-xl font-bold mb-4">🔥 Start Cooking</h2>
+      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search recipes..."
+        className="w-full px-4 py-2.5 bg-white rounded-xl border border-gray-200 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-accent/30" />
+      {filtered.length === 0 ? (
+        <EmptyState emoji="📖" title="No recipes" desc="Add recipes first to start cooking" />
+      ) : (
+        <div className="grid gap-3">
+          {filtered.map(r => (
+            <button key={r.id} onClick={() => { setSelectedId(r.id); setCooking(true); }}
+              className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-left hover:shadow-md transition-all"
+              style={{ borderLeftWidth: 4, borderLeftColor: CAT_COLORS[r.category] }}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-gray-900">{r.name}</h3>
+                  <span className="text-sm text-gray-500">{r.steps?.length || 0} steps · {r.ingredients?.length || 0} ingredients</span>
+                </div>
+                <span className="text-2xl">▶</span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════
+// LOG TAB
+// ══════════════════════════════════════════════
+
+function BatchCard({ batch, recipe, onClick }) {
+  return (
+    <div onClick={onClick} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition-all fade-in"
+      style={{ borderLeftWidth: 4, borderLeftColor: recipe ? CAT_COLORS[recipe.category] : '#888' }}>
+      <div className="flex items-start justify-between mb-2">
+        <div>
+          <div className="text-xs text-gray-400 font-medium mb-0.5">{fmt(batch.date)}</div>
+          <h3 className="font-bold text-gray-900">{recipe?.name || 'Unknown recipe'}</h3>
+        </div>
+        <div className="flex items-center gap-2">
+          {batch.cafeWorthy && <CafeBadge />}
+          {recipe && <CatBadge category={recipe.category} small />}
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <Stars rating={batch.ratings?.overall || 0} size={14} />
+        {batch.modifications && <span className="text-xs text-amber-600 font-medium">modified</span>}
+      </div>
+      {batch.flavorNotes && <p className="text-sm text-gray-500 mt-1 line-clamp-1">{batch.flavorNotes}</p>}
+    </div>
+  );
+}
+
+function BatchForm({ recipes, editBatch, initialRecipeId, onSave, onBack }) {
+  const isEdit = !!editBatch;
+  const [recipeId, setRecipeId] = useState(editBatch?.recipeId || initialRecipeId || '');
+  const [date, setDate] = useState(editBatch?.date || new Date().toISOString().split('T')[0]);
+  const [modifications, setModifications] = useState(editBatch?.modifications || '');
+  const [overall, setOverall] = useState(editBatch?.ratings?.overall || 0);
+  const [texture, setTexture] = useState(editBatch?.ratings?.texture || 0);
+  const [sweetness, setSweetness] = useState(editBatch?.ratings?.sweetness || 0);
+  const [scoopability, setScoopability] = useState(editBatch?.ratings?.scoopability || 0);
+  const [flavor, setFlavor] = useState(editBatch?.ratings?.flavor || 0);
+  const [cafeWorthy, setCafeWorthy] = useState(editBatch?.cafeWorthy || false);
+  const [churningTime, setChurningTime] = useState(editBatch?.churningTime || '');
+  const [churningNotes, setChurningNotes] = useState(editBatch?.churningNotes || '');
+  const [flavorNotes, setFlavorNotes] = useState(editBatch?.flavorNotes || '');
+  const [textureNotes, setTextureNotes] = useState(editBatch?.textureNotes || '');
+  const [custardTemp, setCustardTemp] = useState(editBatch?.temperature?.custardTemp || '');
+  const [preChurnTemp, setPreChurnTemp] = useState(editBatch?.temperature?.preChurnTemp || '');
+
+  const handleSave = () => {
+    if (!recipeId) return alert('Please select a recipe');
+    if (!overall) return alert('Please rate the batch overall');
+    onSave({
+      ...(editBatch || {}), recipeId, date, modifications, cafeWorthy,
+      ratings: { overall, texture, sweetness, scoopability, flavor },
+      churningTime: churningTime ? +churningTime : null, churningNotes, flavorNotes, textureNotes,
+      temperature: { custardTemp: custardTemp ? +custardTemp : null, preChurnTemp: preChurnTemp ? +preChurnTemp : null },
+      photoUrl: editBatch?.photoUrl || null
+    });
+  };
+
+  return (
+    <div className="pb-20 fade-in">
+      <BackBtn onClick={onBack} />
+      <h2 className="text-xl font-bold mb-4">{isEdit ? 'Edit Batch' : 'Log Batch'}</h2>
+
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4 space-y-3">
+        <div>
+          <label className="text-sm font-semibold text-gray-700 mb-1 block">Recipe *</label>
+          <select value={recipeId} onChange={e => setRecipeId(e.target.value)} className="w-full px-3 py-2.5 border rounded-xl text-sm bg-white">
+            <option value="">Select recipe...</option>
+            {recipes.map(r => <option key={r.id} value={r.id}>{CAT_EMOJI[r.category]} {r.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-sm font-semibold text-gray-700 mb-1 block">Date</label>
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm" />
+        </div>
+        <div>
+          <label className="text-sm font-semibold text-gray-700 mb-1 block">Modifications</label>
+          <textarea value={modifications} onChange={e => setModifications(e.target.value)} rows={2} placeholder="What did you change from the recipe?"
+            className="w-full px-3 py-2 border rounded-xl text-sm" />
+        </div>
+      </div>
+
+      {/* Ratings */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4">
+        <h3 className="font-bold text-gray-900 mb-3">Ratings</h3>
+        <RatingSlider value={overall} onChange={setOverall} label="Overall" labels={RATING_LABELS.overall} />
+        <RatingSlider value={texture} onChange={setTexture} label="Texture" labels={RATING_LABELS.texture} />
+        <RatingSlider value={sweetness} onChange={setSweetness} label="Sweetness" labels={RATING_LABELS.sweetness} />
+        <RatingSlider value={scoopability} onChange={setScoopability} label="Scoopability" labels={RATING_LABELS.scoopability} />
+        <RatingSlider value={flavor} onChange={setFlavor} label="Flavor" labels={RATING_LABELS.flavor} />
+        <div className="flex items-center gap-3 mt-4 pt-3 border-t">
+          <button onClick={() => setCafeWorthy(!cafeWorthy)}
+            className={`px-4 py-2.5 rounded-xl font-semibold text-sm transition-all ${cafeWorthy ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
+            ☕ {cafeWorthy ? 'Cafe Worthy!' : 'Cafe Worthy?'}
+          </button>
+          <span className="text-xs text-gray-400">Would you serve this at the cafe?</span>
+        </div>
+      </div>
+
+      {/* Notes */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4 space-y-3">
+        <h3 className="font-bold text-gray-900 mb-1">Notes</h3>
+        <div><label className="text-xs text-gray-500">Flavor notes</label><textarea value={flavorNotes} onChange={e => setFlavorNotes(e.target.value)} rows={2} className="w-full px-3 py-2 border rounded-xl text-sm" /></div>
+        <div><label className="text-xs text-gray-500">Texture notes</label><textarea value={textureNotes} onChange={e => setTextureNotes(e.target.value)} rows={2} className="w-full px-3 py-2 border rounded-xl text-sm" /></div>
+        <div><label className="text-xs text-gray-500">Churning notes</label><textarea value={churningNotes} onChange={e => setChurningNotes(e.target.value)} rows={2} className="w-full px-3 py-2 border rounded-xl text-sm" /></div>
+        <div className="flex gap-3">
+          <div className="flex-1"><label className="text-xs text-gray-500">Churning time (min)</label><input type="number" value={churningTime} onChange={e => setChurningTime(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm" /></div>
+          <div className="flex-1"><label className="text-xs text-gray-500">Custard °C</label><input type="number" value={custardTemp} onChange={e => setCustardTemp(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm" /></div>
+          <div className="flex-1"><label className="text-xs text-gray-500">Pre-churn °C</label><input type="number" value={preChurnTemp} onChange={e => setPreChurnTemp(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm" /></div>
+        </div>
+      </div>
+
+      <button onClick={handleSave} className="w-full py-3 bg-accent text-white rounded-xl font-bold text-base hover:opacity-90">{isEdit ? 'Save Changes' : 'Log Batch'}</button>
+    </div>
+  );
+}
+
+function BatchDetail({ batch, recipe, allBatches, recipes, onBack, onEdit, onDelete, onCompare, onShare }) {
+  const [showDel, setShowDel] = useState(false);
+  const dims = ['overall', 'texture', 'sweetness', 'scoopability', 'flavor'];
+  return (
+    <div className="pb-20 fade-in">
+      <BackBtn onClick={onBack} />
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4" style={{ borderTopWidth: 4, borderTopColor: recipe ? CAT_COLORS[recipe.category] : '#888' }}>
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <div className="text-sm text-gray-400 mb-0.5">{fmt(batch.date)}</div>
+            <h2 className="text-xl font-bold">{recipe?.name || 'Unknown'}</h2>
+            {recipe && <CatBadge category={recipe.category} />}
+          </div>
+          <div className="flex gap-1">
+            <button onClick={onEdit} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">✏️</button>
+            <button onClick={onShare} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">📤</button>
+            <button onClick={() => setShowDel(true)} className="p-2 rounded-lg hover:bg-gray-100 text-red-400">🗑️</button>
+          </div>
+        </div>
+        {batch.cafeWorthy && <div className="mb-3"><CafeBadge /></div>}
+
+        {/* Rating bars */}
+        <div className="space-y-2 mb-4">
+          {dims.map(d => (
+            <div key={d} className="flex items-center gap-2">
+              <span className="text-xs text-gray-500 w-20 capitalize">{d}</span>
+              <div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden">
+                <div className="h-full rounded-full transition-all" style={{
+                  width: `${(batch.ratings?.[d] || 0) * 20}%`,
+                  background: (batch.ratings?.[d] || 0) >= 4 ? '#22C55E' : (batch.ratings?.[d] || 0) >= 3 ? '#F59E0B' : '#EF4444'
+                }} />
+              </div>
+              <span className="text-xs font-bold w-12 text-right">
+                {batch.ratings?.[d] ? RATING_LABELS[d][batch.ratings[d] - 1] : '—'}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {batch.modifications && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4">
+          <h4 className="font-bold text-amber-800 text-sm mb-1">⚡ Modifications</h4>
+          <p className="text-sm text-amber-700">{batch.modifications}</p>
+        </div>
+      )}
+
+      {(batch.flavorNotes || batch.textureNotes || batch.churningNotes) && (
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4 space-y-3">
+          {batch.flavorNotes && <div><h4 className="font-semibold text-sm text-gray-700">Flavor</h4><p className="text-sm text-gray-600">{batch.flavorNotes}</p></div>}
+          {batch.textureNotes && <div><h4 className="font-semibold text-sm text-gray-700">Texture</h4><p className="text-sm text-gray-600">{batch.textureNotes}</p></div>}
+          {batch.churningNotes && <div><h4 className="font-semibold text-sm text-gray-700">Churning</h4><p className="text-sm text-gray-600">{batch.churningNotes}</p></div>}
+          {batch.churningTime && <p className="text-xs text-gray-400">Churning time: {batch.churningTime} min</p>}
+          {(batch.temperature?.custardTemp || batch.temperature?.preChurnTemp) && (
+            <p className="text-xs text-gray-400">
+              {batch.temperature.custardTemp && `Custard: ${batch.temperature.custardTemp}°C`}
+              {batch.temperature.custardTemp && batch.temperature.preChurnTemp && ' · '}
+              {batch.temperature.preChurnTemp && `Pre-churn: ${batch.temperature.preChurnTemp}°C`}
+            </p>
+          )}
+        </div>
+      )}
+
+      <button onClick={onCompare} className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold mb-2 hover:bg-gray-200">⚖️ Compare with another batch</button>
+      <Confirm open={showDel} onClose={() => setShowDel(false)} onConfirm={onDelete} title="Delete batch?" message="This batch log will be permanently removed." />
+    </div>
+  );
+}
+
+function BatchCompare({ batch1, batch2, recipe1, recipe2, onBack }) {
+  const dims = ['overall', 'texture', 'sweetness', 'scoopability', 'flavor'];
+  return (
+    <div className="pb-20 fade-in">
+      <BackBtn onClick={onBack} label="Back to batch" />
+      <h2 className="text-xl font-bold mb-4">⚖️ Compare Batches</h2>
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        {[{b: batch1, r: recipe1}, {b: batch2, r: recipe2}].map(({b, r}, i) => (
+          <div key={i} className="bg-white rounded-xl p-3 border shadow-sm" style={{ borderTopWidth: 3, borderTopColor: r ? CAT_COLORS[r.category] : '#888' }}>
+            <div className="text-xs text-gray-400">{fmt(b.date)}</div>
+            <div className="font-bold text-sm">{r?.name || 'Unknown'}</div>
+            {b.cafeWorthy && <div className="mt-1"><CafeBadge /></div>}
+          </div>
+        ))}
+      </div>
+      <div className="bg-white rounded-2xl p-4 shadow-sm border mb-4">
+        <h3 className="font-bold text-sm mb-3">Ratings Comparison</h3>
+        {dims.map(d => (
+          <div key={d} className="mb-3">
+            <div className="text-xs text-gray-500 capitalize mb-1">{d}</div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold w-5">{batch1.ratings?.[d] || 0}</span>
+              <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden flex">
+                <div className="h-full bg-blue-400 rounded-l-full" style={{ width: `${(batch1.ratings?.[d] || 0) * 20}%` }} />
+              </div>
+              <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden flex justify-end">
+                <div className="h-full bg-purple-400 rounded-r-full" style={{ width: `${(batch2.ratings?.[d] || 0) * 20}%` }} />
+              </div>
+              <span className="text-xs font-bold w-5 text-right">{batch2.ratings?.[d] || 0}</span>
+            </div>
+          </div>
+        ))}
+        <div className="flex justify-center gap-6 text-xs text-gray-400 mt-2">
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-400 inline-block"></span> Batch 1</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-purple-400 inline-block"></span> Batch 2</span>
+        </div>
+      </div>
+      {(batch1.modifications || batch2.modifications) && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm border mb-4">
+          <h3 className="font-bold text-sm mb-3">Modifications</h3>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="text-gray-600">{batch1.modifications || <span className="text-gray-300 italic">No modifications</span>}</div>
+            <div className="text-gray-600">{batch2.modifications || <span className="text-gray-300 italic">No modifications</span>}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LogTab({ recipes, batches, addBatch, updateBatch, deleteBatch, nav, initialFilter, initialView, initialRecipeId }) {
+  const [view, setView] = useState(initialView || 'list');
+  const [selectedId, setSelectedId] = useState(null);
+  const [compareId, setCompareId] = useState(null);
+  const [editBatch, setEditBatch] = useState(null);
+  const [filterCat, setFilterCat] = useState('all');
+  const [filterRecipe, setFilterRecipe] = useState(initialFilter || '');
+  const [filterCafe, setFilterCafe] = useState('all');
+  const [minRating, setMinRating] = useState(0);
+  const [showFilters, setShowFilters] = useState(false);
+  const [search, setSearch] = useState('');
+  const [selectingCompare, setSelectingCompare] = useState(false);
+  const [shareText, setShareText] = useState('');
+
+  const selected = batches.find(b => b.id === selectedId);
+  const compareBatch = batches.find(b => b.id === compareId);
+
+  const filtered = useMemo(() => {
+    let b = [...batches].sort((a, c) => new Date(c.date) - new Date(a.date));
+    if (filterCat !== 'all') b = b.filter(x => { const r = recipes.find(r => r.id === x.recipeId); return r?.category === filterCat; });
+    if (filterRecipe) b = b.filter(x => x.recipeId === filterRecipe);
+    if (filterCafe !== 'all') b = b.filter(x => filterCafe === 'yes' ? x.cafeWorthy : !x.cafeWorthy);
+    if (minRating > 0) b = b.filter(x => (x.ratings?.overall || 0) >= minRating);
+    if (search) { const s = search.toLowerCase(); b = b.filter(x => x.flavorNotes?.toLowerCase().includes(s) || x.textureNotes?.toLowerCase().includes(s) || x.modifications?.toLowerCase().includes(s)); }
+    return b;
+  }, [batches, recipes, filterCat, filterRecipe, filterCafe, minRating, search]);
+
+  if (view === 'add' || view === 'edit') return (
+    <BatchForm recipes={recipes} editBatch={view === 'edit' ? editBatch : null} initialRecipeId={initialRecipeId}
+      onBack={() => setView('list')}
+      onSave={(data) => {
+        if (view === 'edit') updateBatch(editBatch.id, data);
+        else addBatch(data);
+        setView('list');
+      }} />
+  );
+
+  if (view === 'compare' && selected && compareBatch) return (
+    <BatchCompare batch1={selected} batch2={compareBatch}
+      recipe1={recipes.find(r => r.id === selected.recipeId)} recipe2={recipes.find(r => r.id === compareBatch.recipeId)}
+      onBack={() => { setView('detail'); setCompareId(null); }} />
+  );
+
+  if (view === 'detail' && selected) return (
+    <BatchDetail batch={selected} recipe={recipes.find(r => r.id === selected.recipeId)} allBatches={batches} recipes={recipes}
+      onBack={() => setView('list')}
+      onEdit={() => { setEditBatch(selected); setView('edit'); }}
+      onDelete={() => { deleteBatch(selected.id); setView('list'); }}
+      onCompare={() => setSelectingCompare(true)}
+      onShare={() => {
+        const recipe = recipes.find(r => r.id === selected.recipeId);
+        const batchNum = batches.filter(b => new Date(b.createdAt) <= new Date(selected.createdAt)).length;
+        const rBar = (v) => '█'.repeat(v) + '░'.repeat(5 - v);
+        const text = `🍦 Ice Cream Lab — Batch #${batchNum}\n\nRecipe: ${recipe?.name || 'Unknown'}\nCategory: ${recipe?.category || '?'}\nRating: ${'★'.repeat(selected.ratings.overall)}${'☆'.repeat(5 - selected.ratings.overall)}\n\nTexture: ${rBar(selected.ratings.texture)} ${RATING_LABELS.texture[selected.ratings.texture - 1] || ''}\nSweetness: ${rBar(selected.ratings.sweetness)} ${RATING_LABELS.sweetness[selected.ratings.sweetness - 1] || ''}\nScoopability: ${rBar(selected.ratings.scoopability)} ${RATING_LABELS.scoopability[selected.ratings.scoopability - 1] || ''}\nFlavor: ${rBar(selected.ratings.flavor)} ${RATING_LABELS.flavor[selected.ratings.flavor - 1] || ''}\n${selected.modifications ? `\nModifications: ${selected.modifications}` : ''}${selected.flavorNotes ? `\nNotes: ${selected.flavorNotes}` : ''}\n\nCafe worthy? ${selected.cafeWorthy ? '✅' : '❌'}\n\n#IceCreamLab #HomemadeIceCream`;
+        setShareText(text);
+      }} />
+  );
+
+  // Selecting compare batch
+  if (selectingCompare) return (
+    <div className="pb-20 fade-in">
+      <BackBtn onClick={() => setSelectingCompare(false)} label="Cancel" />
+      <h2 className="text-xl font-bold mb-4">Select batch to compare</h2>
+      <div className="grid gap-3">
+        {batches.filter(b => b.id !== selectedId).map(b => (
+          <BatchCard key={b.id} batch={b} recipe={recipes.find(r => r.id === b.recipeId)}
+            onClick={() => { setCompareId(b.id); setSelectingCompare(false); setView('compare'); }} />
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="pb-20">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-bold">📋 Batch Log</h2>
+        <button onClick={() => setShowFilters(!showFilters)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${showFilters ? 'bg-accent text-white' : 'bg-gray-100 text-gray-600'}`}>
+          ⚙ Filters
+        </button>
+      </div>
+
+      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search notes..."
+        className="w-full px-4 py-2.5 bg-white rounded-xl border border-gray-200 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-accent/30" />
+
+      {showFilters && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4 fade-in space-y-3">
+          <div>
+            <label className="text-xs font-semibold text-gray-500">Category</label>
+            <div className="flex gap-2 flex-wrap mt-1">
+              {['all', ...CATEGORIES].map(c => (
+                <button key={c} onClick={() => setFilterCat(c)}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold ${filterCat === c ? 'text-white' : 'bg-gray-100 text-gray-600'}`}
+                  style={filterCat === c ? { background: c === 'all' ? '#FF5722' : CAT_COLORS[c] } : {}}>
+                  {c === 'all' ? 'All' : `${CAT_EMOJI[c]} ${c}`}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-500">Recipe</label>
+            <select value={filterRecipe} onChange={e => setFilterRecipe(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm bg-white mt-1">
+              <option value="">All recipes</option>
+              {recipes.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </div>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="text-xs font-semibold text-gray-500">Min rating</label>
+              <select value={minRating} onChange={e => setMinRating(+e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm bg-white mt-1">
+                <option value={0}>Any</option>{[1,2,3,4,5].map(i => <option key={i} value={i}>{i}+</option>)}
+              </select>
+            </div>
+            <div className="flex-1">
+              <label className="text-xs font-semibold text-gray-500">Cafe worthy</label>
+              <select value={filterCafe} onChange={e => setFilterCafe(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm bg-white mt-1">
+                <option value="all">All</option><option value="yes">Yes</option><option value="no">No</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {filtered.length === 0 ? (
+        <EmptyState emoji="📋" title="No batches yet" desc="Log your first batch after cooking" action="Log Batch" onAction={() => setView('add')} />
+      ) : (
+        <div className="grid gap-3">{filtered.map(b => <BatchCard key={b.id} batch={b} recipe={recipes.find(r => r.id === b.recipeId)} onClick={() => { setSelectedId(b.id); setView('detail'); }} />)}</div>
+      )}
+      <FAB onClick={() => setView('add')} label="Log batch" />
+
+      {/* Share modal */}
+      <Modal open={!!shareText} onClose={() => setShareText('')} title="Share Batch">
+        <textarea value={shareText} onChange={e => setShareText(e.target.value)} rows={12} className="w-full px-3 py-2 border rounded-xl text-sm font-mono mb-3" />
+        <button onClick={() => { navigator.clipboard?.writeText(shareText); setShareText(''); }} className="w-full py-2 bg-accent text-white rounded-xl font-semibold">📋 Copy to Clipboard</button>
+      </Modal>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════
+// PROGRESS TAB
+// ══════════════════════════════════════════════
+
+function HeatMap({ batches }) {
+  const today = new Date();
+  const year = today.getFullYear();
+  const startOfYear = new Date(year, 0, 1);
+  const dayOfWeek = startOfYear.getDay();
+
+  // Build batch count map
+  const countMap = {};
+  batches.forEach(b => {
+    const d = b.date?.split('T')[0] || b.date;
+    countMap[d] = (countMap[d] || 0) + 1;
+  });
+
+  // Generate grid: 53 columns × 7 rows
+  const cells = [];
+  const startDate = new Date(startOfYear);
+  startDate.setDate(startDate.getDate() - dayOfWeek); // align to Sunday
+
+  for (let week = 0; week < 53; week++) {
+    for (let day = 0; day < 7; day++) {
+      const d = new Date(startDate);
+      d.setDate(d.getDate() + week * 7 + day);
+      if (d.getFullYear() !== year && d > startOfYear) continue;
+      const key = d.toISOString().split('T')[0];
+      const count = countMap[key] || 0;
+      const isToday = key === today.toISOString().split('T')[0];
+      const isFuture = d > today;
+      cells.push({ week, day, date: key, count, isToday, isFuture, inYear: d.getFullYear() === year });
+    }
+  }
+
+  const getColor = (count, isFuture, inYear) => {
+    if (isFuture || !inYear) return '#F3F4F6';
+    if (count === 0) return '#E8F5E9';
+    if (count === 1) return '#66BB6A';
+    if (count === 2) return '#2E7D32';
+    return '#1B5E20';
+  };
+
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  return (
+    <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4 overflow-x-auto">
+      <h3 className="font-bold text-gray-900 mb-3">🗓 {year} Batch Activity</h3>
+      <div className="flex gap-0.5 mb-1 pl-8">
+        {months.map((m, i) => <span key={i} className="text-[9px] text-gray-400" style={{ width: `${100/12}%` }}>{m}</span>)}
+      </div>
+      <div className="flex gap-1">
+        <div className="flex flex-col gap-0.5 text-[9px] text-gray-400 mr-1" style={{ paddingTop: 1 }}>
+          {['','M','','W','','F',''].map((d, i) => <div key={i} style={{ height: 13, lineHeight: '13px' }}>{d}</div>)}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(53, 13px)', gridTemplateRows: 'repeat(7, 13px)', gap: 2 }}>
+          {cells.map((c, i) => (
+            <div key={i} className="heat-cell" title={`${c.date}: ${c.count} batch${c.count !== 1 ? 'es' : ''}`}
+              style={{
+                gridColumn: c.week + 1, gridRow: c.day + 1,
+                background: getColor(c.count, c.isFuture, c.inYear),
+                outline: c.isToday ? '2px solid #FF5722' : 'none',
+                outlineOffset: -1,
+              }} />
+          ))}
+        </div>
+      </div>
+      <div className="flex items-center gap-1 mt-2 justify-end">
+        <span className="text-[9px] text-gray-400">Less</span>
+        {['#E8F5E9','#66BB6A','#2E7D32','#1B5E20'].map(c => <div key={c} className="heat-cell" style={{ background: c }} />)}
+        <span className="text-[9px] text-gray-400">More</span>
+      </div>
+    </div>
+  );
+}
+
+function StatsCards({ recipes, batches }) {
+  const total = batches.length;
+  const now = new Date();
+  const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7);
+  const monthAgo = new Date(now); monthAgo.setDate(monthAgo.getDate() - 30);
+  const thisWeek = batches.filter(b => new Date(b.date) >= weekAgo).length;
+  const thisMonth = batches.filter(b => new Date(b.date) >= monthAgo).length;
+  const avgAll = total > 0 ? (batches.reduce((s, b) => s + (b.ratings?.overall || 0), 0) / total) : 0;
+  const uniqueRecipes = new Set(batches.map(b => b.recipeId)).size;
+  const cafeCount = new Set(batches.filter(b => b.cafeWorthy).map(b => b.recipeId)).size;
+
+  const recipeCounts = {};
+  batches.forEach(b => { recipeCounts[b.recipeId] = (recipeCounts[b.recipeId] || 0) + 1; });
+  const mostMadeId = Object.entries(recipeCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const mostMade = recipes.find(r => r.id === mostMadeId);
+
+  const recipeAvgs = {};
+  batches.forEach(b => {
+    if (!recipeAvgs[b.recipeId]) recipeAvgs[b.recipeId] = { sum: 0, count: 0 };
+    recipeAvgs[b.recipeId].sum += b.ratings?.overall || 0;
+    recipeAvgs[b.recipeId].count++;
+  });
+  const bestId = Object.entries(recipeAvgs).sort((a, b) => (b[1].sum / b[1].count) - (a[1].sum / a[1].count))[0]?.[0];
+  const bestRated = recipes.find(r => r.id === bestId);
+
+  const catCounts = {};
+  batches.forEach(b => { const r = recipes.find(r => r.id === b.recipeId); if (r) catCounts[r.category] = (catCounts[r.category] || 0) + 1; });
+
+  const stats = [
+    { label: 'Total Batches', value: total, icon: '🍦', big: true },
+    { label: 'This Week', value: thisWeek, icon: '📅' },
+    { label: 'This Month', value: thisMonth, icon: '📆' },
+    { label: 'Avg Rating', value: avgAll ? avgAll.toFixed(1) : '—', icon: '⭐' },
+    { label: 'Unique Recipes', value: uniqueRecipes, icon: '📖' },
+    { label: 'Cafe Worthy', value: cafeCount, icon: '☕' },
+  ];
+
+  return (
+    <div className="mb-4">
+      <div className="grid grid-cols-3 gap-3 mb-3">
+        {stats.map(s => (
+          <div key={s.label} className={`bg-white rounded-2xl p-3 shadow-sm border border-gray-100 text-center ${s.big ? 'col-span-3' : ''}`}>
+            <div className={`${s.big ? 'text-4xl' : 'text-2xl'} font-bold text-gray-900`}>{s.value}</div>
+            <div className="text-xs text-gray-500 mt-0.5">{s.icon} {s.label}</div>
+          </div>
+        ))}
+      </div>
+      {(mostMade || bestRated) && (
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          {mostMade && (
+            <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-100">
+              <div className="text-xs text-gray-400 mb-1">🏆 Most Made</div>
+              <div className="font-bold text-sm text-gray-900 truncate">{mostMade.name}</div>
+              <div className="text-xs text-gray-500">{recipeCounts[mostMadeId]} batches</div>
+            </div>
+          )}
+          {bestRated && (
+            <div className="bg-white rounded-2xl p-3 shadow-sm border border-gray-100">
+              <div className="text-xs text-gray-400 mb-1">⭐ Best Rated</div>
+              <div className="font-bold text-sm text-gray-900 truncate">{bestRated.name}</div>
+              <div className="text-xs text-gray-500">{(recipeAvgs[bestId].sum / recipeAvgs[bestId].count).toFixed(1)} avg</div>
+            </div>
+          )}
+        </div>
+      )}
+      {Object.keys(catCounts).length > 0 && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+          <h4 className="text-sm font-bold text-gray-700 mb-2">Category Breakdown</h4>
+          {CATEGORIES.filter(c => catCounts[c]).map(c => (
+            <div key={c} className="flex items-center gap-2 mb-2">
+              <span className="text-sm w-28">{CAT_EMOJI[c]} {c}</span>
+              <div className="flex-1 h-5 bg-gray-100 rounded-full overflow-hidden">
+                <div className="h-full rounded-full" style={{ width: `${(catCounts[c] / total) * 100}%`, background: CAT_COLORS[c] }} />
+              </div>
+              <span className="text-xs font-bold w-8 text-right">{catCounts[c]}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SkillProgression({ recipes, batches }) {
+  const total = batches.length;
+  const uniqueRecipeIds = new Set(batches.map(b => b.recipeId));
+  const recipeCountMap = {};
+  batches.forEach(b => { recipeCountMap[b.recipeId] = (recipeCountMap[b.recipeId] || 0) + 1; });
+  const batchWeeks = new Set(batches.map(b => { const d = new Date(b.date); return `${d.getFullYear()}-W${Math.ceil((d.getDate() + new Date(d.getFullYear(), d.getMonth(), 1).getDay()) / 7)}-${d.getMonth()}`; }));
+
+  const recipeAvgs = {};
+  batches.forEach(b => {
+    if (!recipeAvgs[b.recipeId]) recipeAvgs[b.recipeId] = [];
+    recipeAvgs[b.recipeId].push(b.ratings?.overall || 0);
+  });
+
+  const cafeRecipes = new Set(batches.filter(b => b.cafeWorthy).map(b => b.recipeId));
+  const cafeCategories = new Set();
+  cafeRecipes.forEach(rid => { const r = recipes.find(r => r.id === rid); if (r) cafeCategories.add(r.category); });
+
+  const getRecipeCategory = (rid) => recipes.find(r => r.id === rid)?.category;
+  const hasKetoBatch = batches.some(b => getRecipeCategory(b.recipeId) === 'keto');
+  const hasStabilizer = batches.some(b => {
+    const r = recipes.find(r => r.id === b.recipeId);
+    return r?.ingredients?.some(i => i.category === 'stabilizer');
+  });
+
+  const tracks = [
+    { name: 'Foundations', color: '#E5960B', emoji: '🌱', milestones: [
+      { label: 'Make your first batch', done: total >= 1 },
+      { label: 'Log a batch with notes', done: batches.some(b => b.flavorNotes || b.textureNotes || b.churningNotes) },
+      { label: 'Try a custard-based recipe', done: batches.some(b => { const r = recipes.find(r => r.id === b.recipeId); return r?.ingredients?.some(i => i.category === 'egg'); }) },
+      { label: 'Try an eggless recipe', done: batches.some(b => { const r = recipes.find(r => r.id === b.recipeId); return r && !r.ingredients?.some(i => i.category === 'egg'); }) },
+      { label: 'Rate a batch 4+ stars', done: batches.some(b => (b.ratings?.overall || 0) >= 4) },
+      { label: 'Make 5 total batches', done: total >= 5 },
+    ]},
+    { name: 'Consistency', color: '#3B82F6', emoji: '🎯', milestones: [
+      { label: 'Make same recipe 3 times', done: Object.values(recipeCountMap).some(c => c >= 3) },
+      { label: '3 batches of same recipe rated 4+', done: Object.entries(recipeAvgs).some(([_, ratings]) => ratings.filter(r => r >= 4).length >= 3) },
+      { label: 'Batches in 3 different weeks', done: batchWeeks.size >= 3 },
+      { label: 'Reach 10 total batches', done: total >= 10 },
+      { label: 'Reach 25 total batches', done: total >= 25 },
+    ]},
+    { name: 'Formulation', color: '#00A89D', emoji: '🧪', milestones: [
+      { label: 'Duplicate and modify a recipe', done: recipes.some(r => r.name.includes('copy') || r.name.includes('v2') || r.name.includes('v3')) },
+      { label: 'Make your first keto batch', done: hasKetoBatch },
+      { label: 'Try a recipe with a stabilizer', done: hasStabilizer },
+      { label: 'Try 3 different sweetener approaches', done: new Set(recipes.filter(r => uniqueRecipeIds.has(r.id)).flatMap(r => r.ingredients?.filter(i => i.category === 'sweetener').map(i => i.name) || [])).size >= 3 },
+      { label: '5 unique recipes tried', done: uniqueRecipeIds.size >= 5 },
+    ]},
+    { name: 'Mastery', color: '#8B5CF6', emoji: '👑', milestones: [
+      { label: 'Rate a keto recipe 5 stars', done: batches.some(b => getRecipeCategory(b.recipeId) === 'keto' && b.ratings?.overall === 5) },
+      { label: '3 cafe-worthy recipes', done: cafeRecipes.size >= 3 },
+      { label: '5 cafe-worthy recipes', done: cafeRecipes.size >= 5 },
+      { label: 'Cafe-worthy in 2+ categories', done: cafeCategories.size >= 2 },
+      { label: 'Reach 50 total batches', done: total >= 50 },
+      { label: '🏆 Holy Grail: 5-star cafe-worthy keto', done: batches.some(b => getRecipeCategory(b.recipeId) === 'keto' && b.ratings?.overall === 5 && b.cafeWorthy) },
+    ]},
+  ];
+
+  return (
+    <div className="mb-4">
+      <h3 className="font-bold text-gray-900 mb-3">🏅 Skill Progression</h3>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {tracks.map(track => {
+          const done = track.milestones.filter(m => m.done).length;
+          const pct = (done / track.milestones.length) * 100;
+          return (
+            <div key={track.name} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-lg">{track.emoji}</span>
+                <h4 className="font-bold text-gray-900">{track.name}</h4>
+                <span className="text-xs font-semibold ml-auto" style={{ color: track.color }}>{done}/{track.milestones.length}</span>
+              </div>
+              <div className="h-2 bg-gray-100 rounded-full mb-3 overflow-hidden">
+                <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: track.color }} />
+              </div>
+              <div className="space-y-1.5">
+                {track.milestones.map((m, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <span className={`text-sm mt-0.5 ${m.done ? '' : 'opacity-30'}`}>{m.done ? '✅' : '⬜'}</span>
+                    <span className={`text-sm ${m.done ? 'text-gray-700' : 'text-gray-400'}`}>{m.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ProgressTab({ recipes, batches }) {
+  return (
+    <div className="pb-20">
+      <h2 className="text-xl font-bold mb-4">📊 Progress</h2>
+      <HeatMap batches={batches} />
+      <StatsCards recipes={recipes} batches={batches} />
+      <SkillProgression recipes={recipes} batches={batches} />
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════
+// BACKUP / RESTORE
+// ══════════════════════════════════════════════
+
+function BackupModal({ open, onClose, recipes, batches, onRestore }) {
+  const [json, setJson] = useState('');
+  const [error, setError] = useState('');
+
+  const handleExport = () => {
+    const data = { recipes, batches, exportedAt: new Date().toISOString(), version: 1 };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = `icecreamlab-backup-${new Date().toISOString().split('T')[0]}.json`; a.click();
+  };
+
+  const handleRestore = () => {
+    try {
+      const data = JSON.parse(json);
+      if (!data.recipes || !data.batches) throw new Error('Invalid backup format');
+      onRestore(data.recipes, data.batches);
+      onClose(); setJson('');
+    } catch (e) { setError(e.message); }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Backup & Restore" wide>
+      <div className="space-y-4">
+        <div>
+          <h4 className="font-semibold mb-2">Export Data</h4>
+          <button onClick={handleExport} className="w-full py-2.5 bg-gray-800 text-white rounded-xl font-semibold">📥 Download Full Backup (JSON)</button>
+          <p className="text-xs text-gray-400 mt-1">{recipes.length} recipes, {batches.length} batches</p>
+        </div>
+        <hr />
+        <div>
+          <h4 className="font-semibold mb-2">Restore from Backup</h4>
+          <textarea value={json} onChange={e => { setJson(e.target.value); setError(''); }}
+            rows={6} placeholder="Paste backup JSON here..." className="w-full px-3 py-2 border rounded-xl text-sm font-mono" />
+          {error && <p className="text-red-500 text-sm mt-1">{error}</p>}
+          <button onClick={handleRestore} className="w-full py-2.5 bg-red-500 text-white rounded-xl font-semibold mt-2">⚠️ Restore (replaces all data)</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ══════════════════════════════════════════════
+// APP SHELL
+// ══════════════════════════════════════════════
+
+const TAB_ICONS = {
+  recipes: { icon: '📖', label: 'Recipes' },
+  cook: { icon: '🔥', label: 'Cook' },
+  log: { icon: '📋', label: 'Log' },
+  progress: { icon: '📊', label: 'Progress' },
+};
+
+function BottomNav({ active, onChange }) {
+  return (
+    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-40 pb-[env(safe-area-inset-bottom)]">
+      <div className="flex max-w-lg mx-auto">
+        {Object.entries(TAB_ICONS).map(([key, { icon, label }]) => (
+          <button key={key} onClick={() => onChange(key)}
+            className={`flex-1 py-2.5 flex flex-col items-center gap-0.5 transition-all ${active === key ? 'text-accent' : 'text-gray-400'}`}>
+            <span className="text-xl">{icon}</span>
+            <span className={`text-[10px] font-semibold ${active === key ? 'text-accent' : 'text-gray-400'}`}>{label}</span>
+            {active === key && <div className="w-6 h-0.5 bg-accent rounded-full mt-0.5" />}
+          </button>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
+function App() {
+  const { recipes, addRecipe, updateRecipe, deleteRecipe, duplicateRecipe, importRecipe } = useRecipes();
+  const { batches, addBatch, updateBatch, deleteBatch } = useBatches();
+  const [tab, setTab] = useState('recipes');
+  const [navParams, setNavParams] = useState({});
+  const [showBackup, setShowBackup] = useState(false);
+
+  const nav = (newTab, screen, params = {}) => {
+    setTab(newTab);
+    setNavParams({ screen, ...params });
+  };
+
+  // Reset nav params when tab changes directly
+  const handleTabChange = (newTab) => {
+    setTab(newTab);
+    setNavParams({});
+  };
+
+  const handleRestore = (newRecipes, newBatches) => {
+    S.set('icl-recipes', newRecipes);
+    S.set('icl-batches', newBatches);
+    window.location.reload();
+  };
+
+  // Check if in cook mode (hide chrome)
+  const inCookMode = tab === 'cook' && navParams.screen === 'active';
+
+  return (
+    <div className={`${inCookMode ? '' : 'max-w-lg mx-auto'}`}>
+      {!inCookMode && (
+        <header className="sticky top-0 z-30 bg-surface/80 backdrop-blur-lg border-b border-gray-100">
+          <div className="max-w-lg mx-auto px-5 py-3 flex items-center justify-between">
+            <div>
+              <h1 className="text-lg font-extrabold text-gray-900">🍦 Ice Cream Lab</h1>
+              <span className="text-[10px] text-gray-400 font-medium">アイスクリームラボ</span>
+            </div>
+            <button onClick={() => setShowBackup(true)} className="p-2 rounded-lg hover:bg-gray-100 text-gray-400 text-sm" title="Backup & Restore">⚙️</button>
+          </div>
+        </header>
+      )}
+
+      <main className={inCookMode ? '' : 'px-5 py-4'}>
+        {tab === 'recipes' && <RecipesTab recipes={recipes} batches={batches} nav={nav}
+          addRecipe={addRecipe} updateRecipe={updateRecipe} deleteRecipe={deleteRecipe}
+          duplicateRecipe={duplicateRecipe} importRecipe={importRecipe} />}
+
+        {tab === 'cook' && <CookTab recipes={recipes} batches={batches} nav={nav}
+          initialRecipeId={navParams.recipeId} />}
+
+        {tab === 'log' && <LogTab recipes={recipes} batches={batches}
+          addBatch={addBatch} updateBatch={updateBatch} deleteBatch={deleteBatch} nav={nav}
+          initialFilter={navParams.recipeFilter} initialView={navParams.screen}
+          initialRecipeId={navParams.recipeId} />}
+
+        {tab === 'progress' && <ProgressTab recipes={recipes} batches={batches} />}
+      </main>
+
+      {!inCookMode && <BottomNav active={tab} onChange={handleTabChange} />}
+
+      <BackupModal open={showBackup} onClose={() => setShowBackup(false)}
+        recipes={recipes} batches={batches} onRestore={handleRestore} />
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════
+// MOUNT
+// ══════════════════════════════════════════════
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+
+</script>
+</body>
+</html>
