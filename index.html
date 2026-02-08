@@ -369,19 +369,24 @@ function RecipeList({recipes,batches,onSelect,onAdd}){
 }
 
 function RecipeDetail({recipe,batches,onBack,onEdit,onDuplicate,onDelete,onCook,onViewBatches,onExport,prefs,onOpenPrefs}){
-  const[scale,setScale]=useState(recipe.servings);const[showDel,setShowDel]=useState(false);
+  const[scale,setScale]=useState(recipe.servings);const[showDel,setShowDel]=useState(false);const[showMenu,setShowMenu]=useState(false);
   const avg=avgRating(batches,recipe.id);const count=batchCount(batches,recipe.id);
+  const menuRef=useRef(null);
+  useEffect(()=>{if(!showMenu)return;const h=e=>{if(menuRef.current&&!menuRef.current.contains(e.target))setShowMenu(false)};document.addEventListener('pointerdown',h);return()=>document.removeEventListener('pointerdown',h)},[showMenu]);
   return(<div className="pb-20 fade-in">
     <BackBtn onClick={onBack}/>
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4" style={{borderTopWidth:4,borderTopColor:CAT_COLORS[recipe.category]}}>
       <div className="flex items-start justify-between mb-3">
-        <div><h2 className="text-xl font-bold text-gray-900 mb-1">{recipe.name}</h2><CatBadge category={recipe.category}/></div>
-        <div className="flex gap-1 items-start">
-          {recipe.isBaseline&&<PrefsGear prefs={prefs} onClick={onOpenPrefs}/>}
-          <button onClick={onEdit} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500" title="Edit">✏️</button>
-          <button onClick={onDuplicate} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500" title="Duplicate">📋</button>
-          <button onClick={onExport} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500" title="Export JSON">📤</button>
-          <button onClick={()=>setShowDel(true)} className="p-2 rounded-lg hover:bg-gray-100 text-red-400" title="Delete">🗑️</button>
+        <div className="flex-1 min-w-0"><h2 className="text-xl font-bold text-gray-900 mb-1">{recipe.name}</h2><div className="flex items-center gap-2 flex-wrap"><CatBadge category={recipe.category}/>{recipe.isBaseline&&<PrefsGear prefs={prefs} onClick={onOpenPrefs}/>}</div></div>
+        <div className="relative flex-shrink-0 ml-2" ref={menuRef}>
+          <button onClick={()=>setShowMenu(!showMenu)} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500 text-lg">⋯</button>
+          {showMenu&&(<div className="absolute right-0 top-11 bg-white rounded-xl shadow-lg border border-gray-100 py-1.5 w-44 z-30 fade-in">
+            <button onClick={()=>{setShowMenu(false);onEdit()}} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2"><span>✏️</span> Edit recipe</button>
+            <button onClick={()=>{setShowMenu(false);onDuplicate()}} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2"><span>📋</span> Duplicate</button>
+            <button onClick={()=>{setShowMenu(false);onExport()}} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2"><span>📤</span> Export JSON</button>
+            <hr className="my-1 border-gray-100"/>
+            <button onClick={()=>{setShowMenu(false);setShowDel(true)}} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 text-red-500 flex items-center gap-2"><span>🗑️</span> Delete</button>
+          </div>)}
         </div>
       </div>
       {avg>0&&<div className="flex items-center gap-2 mb-2"><Stars rating={avg} size={16}/><span className="text-sm font-semibold text-gray-600">{avg.toFixed(1)} ({count} batch{count!==1?'es':''})</span></div>}
@@ -514,32 +519,29 @@ function CookMode({recipe,onExit,onLogBatch,prefs,onOpenPrefs}){
       </div>
     </div>
     <div className="flex gap-1 px-4 py-3 flex-shrink-0">{sorted.map((s,i)=>(<div key={s.id} className={`flex-1 h-2 rounded-full transition-all ${i<step?'bg-green-500':i===step?'bg-accent':'bg-gray-700'}`}/>))}</div>
-    <div className="flex-1 flex items-stretch overflow-hidden relative">
-      <button onClick={goPrev} disabled={step===0} className={`flex-shrink-0 w-14 flex items-center justify-center text-3xl font-bold transition-all z-10 ${step===0?'text-gray-800 cursor-default':'text-gray-400 hover:text-white hover:bg-gray-800/50 active:bg-gray-700/50'}`} style={{minHeight:48}}>‹</button>
-      <div className="flex-1 overflow-y-auto py-4 px-2">
-        <div className="text-accent font-bold text-sm mb-2">Step {step+1} of {sorted.length}</div>
-        <h2 className="text-2xl font-bold mb-4">{current.title}</h2>
-        {stepIngs.length>0&&(<div className="bg-gray-800/50 rounded-xl p-4 mb-4">{stepIngs.map(ing=>(<div key={ing.id} className="flex justify-between py-1.5 text-sm"><span className="text-gray-300">{ing.name}</span><span className="text-accent font-bold">{ing.amount} {ing.unit}</span></div>))}</div>)}
-        <p className="text-lg leading-relaxed text-gray-200 mb-6">{current.instruction}</p>
-        {current.timerSeconds&&<CookTimer seconds={current.timerSeconds} onDone={()=>{}}/>}
-        <div className="text-center text-gray-600 text-xs mt-4 pb-2">Swipe or use arrows to navigate</div>
-      </div>
-      <button onClick={goNext} className="flex-shrink-0 w-14 flex items-center justify-center text-3xl font-bold transition-all text-gray-400 hover:text-white hover:bg-gray-800/50 active:bg-gray-700/50 z-10" style={{minHeight:48}}>›</button>
+    <div className="flex-1 overflow-y-auto px-5 py-4">
+      <div className="text-accent font-bold text-sm mb-2">Step {step+1} of {sorted.length}</div>
+      <h2 className="text-2xl font-bold mb-4">{current.title}</h2>
+      {stepIngs.length>0&&(<div className="bg-gray-800/50 rounded-xl p-4 mb-4">{stepIngs.map(ing=>(<div key={ing.id} className="flex justify-between py-1.5 text-sm"><span className="text-gray-300">{ing.name}</span><span className="text-accent font-bold">{ing.amount} {ing.unit}</span></div>))}</div>)}
+      <p className="text-lg leading-relaxed text-gray-200 mb-6">{current.instruction}</p>
+      {current.timerSeconds&&<CookTimer seconds={current.timerSeconds} onDone={()=>{}}/>}
+      <div className="text-center text-gray-600 text-xs mt-4 pb-2">Swipe left/right to navigate</div>
     </div>
-    <div className="px-4 py-4 border-t border-gray-800 flex gap-3 flex-shrink-0 pb-[max(16px,env(safe-area-inset-bottom))]">
-      <button onClick={goPrev} disabled={step===0} className={`px-6 py-4 rounded-xl font-bold text-base min-h-[56px] ${step===0?'bg-gray-800 text-gray-600':'bg-gray-700 text-white active:bg-gray-600'}`}>‹ Prev</button>
-      {step<sorted.length-1?(<button onClick={goNext} className="flex-1 py-4 bg-accent text-white rounded-xl font-bold text-lg min-h-[56px] hover:opacity-90 active:scale-[0.98] transition-all">Done ✓ Next ›</button>):(<button onClick={goNext} className="flex-1 py-4 bg-green-500 text-white rounded-xl font-bold text-lg min-h-[56px] hover:opacity-90 active:scale-[0.98] transition-all">Finish! ✓</button>)}
+    <div className="px-4 py-3 border-t border-gray-800 flex gap-3 flex-shrink-0" style={{paddingBottom:'max(12px, env(safe-area-inset-bottom))'}}>
+      <button onClick={goPrev} disabled={step===0} className={`w-20 py-3.5 rounded-xl font-bold text-sm min-h-[48px] ${step===0?'bg-gray-800 text-gray-600':'bg-gray-700 text-white active:bg-gray-600'}`}>← Prev</button>
+      {step<sorted.length-1?(<button onClick={goNext} className="flex-1 py-3.5 bg-accent text-white rounded-xl font-bold text-base min-h-[48px] hover:opacity-90 active:scale-[0.98] transition-all">Next →</button>):(<button onClick={goNext} className="flex-1 py-3.5 bg-green-500 text-white rounded-xl font-bold text-base min-h-[48px] hover:opacity-90 active:scale-[0.98] transition-all">Finish ✓</button>)}
     </div>
     {showIngredients&&(<div className="fixed inset-0 z-[60] bg-gray-900/95 flex flex-col"><div className="flex items-center justify-between px-5 py-4 border-b border-gray-700"><h3 className="font-bold text-lg">All Ingredients</h3><button onClick={()=>setShowIngredients(false)} className="text-gray-400 hover:text-white text-xl min-w-[48px] min-h-[48px] flex items-center justify-center">×</button></div><div className="flex-1 overflow-y-auto px-5 py-4">{recipe.ingredients.map(ing=>(<div key={ing.id} className="flex justify-between py-2.5 border-b border-gray-800"><div><span className="text-gray-200">{ing.name}</span>{ing.nameJa&&<span className="text-gray-500 text-sm ml-2">{ing.nameJa}</span>}</div><span className="text-accent font-bold">{ing.amount} {ing.unit}</span></div>))}</div></div>)}
     {showExitConfirm&&(<div className="fixed inset-0 z-[60] flex items-center justify-center p-4"><div className="fixed inset-0 bg-black/60" onClick={()=>setShowExitConfirm(false)}/><div className="relative bg-gray-800 rounded-2xl p-6 max-w-sm w-full"><h3 className="font-bold text-lg mb-2">Exit cook mode?</h3><p className="text-gray-400 mb-5">Your progress won't be saved.</p><div className="flex gap-3"><button onClick={()=>setShowExitConfirm(false)} className="flex-1 py-3 rounded-xl bg-gray-700 text-white font-semibold min-h-[48px]">Stay</button><button onClick={onExit} className="flex-1 py-3 rounded-xl bg-red-500 text-white font-semibold min-h-[48px]">Exit</button></div></div></div>)}
   </div>);
 }
 
-function CookTab({recipes,batches,nav,initialRecipeId,onCookingChange,prefs,onOpenPrefs}){
+function CookTab({recipes,batches,nav,initialRecipeId,onCookingChange,prefs,onPrefsChange}){
   const[selectedId,setSelectedId]=useState(initialRecipeId||null);const[cooking,setCooking]=useState(!!initialRecipeId);const[search,setSearch]=useState('');
+  const[showPrefs,setShowPrefs]=useState(false);
   const recipe=recipes.find(r=>r.id===selectedId);
   useEffect(()=>{onCookingChange?.(cooking)},[cooking]);
-  if(cooking&&recipe)return(<CookMode recipe={recipe} prefs={prefs} onOpenPrefs={onOpenPrefs} onExit={()=>{setCooking(false);setSelectedId(null)}} onLogBatch={()=>{setCooking(false);nav('log','add',{recipeId:recipe.id})}}/>);
+  if(cooking&&recipe)return(<><CookMode recipe={recipe} prefs={prefs} onOpenPrefs={()=>setShowPrefs(true)} onExit={()=>{setCooking(false);setSelectedId(null)}} onLogBatch={()=>{setCooking(false);nav('log-add',{recipeId:recipe.id})}}/><PreferencesSheet open={showPrefs} onClose={()=>setShowPrefs(false)} prefs={prefs} onSave={onPrefsChange}/></>);
   const filtered=search?recipes.filter(r=>r.name.toLowerCase().includes(search.toLowerCase())):recipes;
   return(<div className="pb-20"><h2 className="text-xl font-bold mb-4">🔥 Start Cooking</h2><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search recipes..." className="w-full px-4 py-2.5 bg-white rounded-xl border border-gray-200 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-accent/30"/>{filtered.length===0?(<EmptyState emoji="📖" title="No recipes" desc="Add recipes first to start cooking"/>):(<div className="grid gap-3">{filtered.map(r=>(<button key={r.id} onClick={()=>{setSelectedId(r.id);setCooking(true)}} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-left hover:shadow-md transition-all" style={{borderLeftWidth:4,borderLeftColor:CAT_COLORS[r.category]}}><div className="flex items-center justify-between"><div><h3 className="font-bold text-gray-900">{r.name}</h3><span className="text-sm text-gray-500">{r.steps?.length||0} steps · {r.ingredients?.length||0} ingredients</span></div><span className="text-2xl">▶</span></div></button>))}</div>)}</div>);
 }
