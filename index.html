@@ -82,14 +82,20 @@ const BASELINE_CORE_INGREDIENTS=[
   {id:'vc02',name:'Whole milk',nameJa:'牛乳',amount:120,unit:'g',category:'dairy'},
   {id:'vc03',name:'Granulated sugar',nameJa:'グラニュー糖',amount:45,unit:'g',category:'sweetener'},
   {id:'vc04',name:'Glucose syrup',nameJa:'水飴',amount:15,unit:'g',category:'sweetener'},
-  {id:'vc05',name:'Egg yolks',nameJa:'卵黄',amount:2,unit:'pieces',category:'egg'},
+  {id:'vc05',name:'Egg yolks',nameJa:'卵黄',amount:30,unit:'g',category:'egg',isYolk:true},
   {id:'vc06',name:'Salt',nameJa:'塩',amount:1,unit:'pinch',category:'other'},
 ];
+const YOLK_REF_G=30; // reference yolk weight at 300ml scale
 const VANILLA_INGREDIENTS={
-  bean:{id:'vi-bean',name:'Vanilla bean (split & scraped)',nameJa:'バニラのさや',amount:'⅓',unit:'pieces',category:'flavor'},
-  paste:{id:'vi-paste',name:'Vanilla bean paste',nameJa:'バニラビーンズペースト',amount:2,unit:'g',category:'flavor'},
-  extract:{id:'vi-extract',name:'Vanilla extract',nameJa:'バニラエクストラクト',amount:2,unit:'tsp',category:'flavor'},
+  bean:{id:'vi-bean',name:'Vanilla bean',nameJa:'バニラのさや',amount:1,unit:'bean',category:'flavor'},
+  paste:{id:'vi-paste',name:'Vanilla bean paste',nameJa:'バニラビーンズペースト',amount:6,unit:'g',category:'flavor'},
+  extract:{id:'vi-extract',name:'Vanilla extract',nameJa:'バニラエクストラクト',amount:6,unit:'g',category:'flavor'},
 };
+// Temperature conversion helpers
+const TEMP_REFS={'82':'180','80':'176','85':'185','10':'50','4':'40'};
+function toF(c){return Math.round(c*9/5+32)}
+function tempStr(c,unit){return unit==='F'?`${toF(c)}°F`:`${c}°C`}
+function convertTempsInText(text,unit){if(!unit||unit==='C')return text;return text.replace(/(\d+)\s*[-–]\s*(\d+)\s*°C/g,(m,lo,hi)=>`${toF(+lo)}–${toF(+hi)}°F`).replace(/(\d+)\s*°C/g,(m,n)=>`${toF(+n)}°F`)}
 const AGENT_INGREDIENTS={
   none:null,
   commercial_stabilizer:{id:'ai-cs',name:'Commercial ice cream stabilizer',nameJa:'アイスクリーム安定剤',amount:1,unit:'g',category:'stabilizer'},
@@ -111,9 +117,10 @@ function resolveBaselineIngredients(prefs){
 function resolveBaselineSteps(prefs){
   const v=prefs.vanillaPreference||'paste';
   const t=prefs.textureAgentPreference||'none';
-  const vanillaHeatText=v==='bean'?'Add your vanilla bean — split lengthwise, scrape seeds into the pot, and drop the pod in too.':v==='paste'?'Stir in 2g vanilla bean paste.':'';
+  const vanillaHeatText=v==='bean'?'Add your vanilla bean — split lengthwise, scrape seeds into the pot, and drop the pod in too.':v==='paste'?'Stir in 6g vanilla bean paste.':'';
   const vanillaNote=v==='extract'?' Do not add vanilla yet — extract is added after cooking.':'';
   const sugarNote=t==='commercial_stabilizer'?' The sugar already has your stabilizer mixed in.':'';
+  const needsInfusion=v==='bean'||v==='paste';
   const steps=[];
   // 1: Ice bath
   steps.push({id:'bs1',order:1,title:'Prepare ice bath',instruction:'Fill a large bowl two-thirds with ice water. Place a smaller metal or glass bowl inside it. Set a fine-mesh strainer (こし器) over the inner bowl. Set aside in fridge.',timerSeconds:null,ingredients:[],condition:null});
@@ -123,20 +130,25 @@ function resolveBaselineSteps(prefs){
   if(t==='cornstarch') steps.push({id:'bs2c',order:2,title:'Prepare starch slurry',instruction:'In a small bowl, mix 3g cornstarch with 6g cold milk. Stir until smooth with no lumps. Set aside — you\'ll add this to the hot dairy before the eggs.',timerSeconds:null,ingredients:['ai-cs2','ai-cs2-m'],condition:'cornstarch'});
   // 3: Heat dairy
   steps.push({id:'bs3',order:3,title:'Heat dairy and sugar',instruction:`Combine 90g heavy cream, 120g milk, 45g sugar${sugarNote}, and 15g glucose syrup in a medium saucepan. ${vanillaHeatText}${vanillaNote} Heat over medium, whisking occasionally, until the mixture comes to a gentle boil with small bubbles around the edges. Remove from heat.`,timerSeconds:300,ingredients:['vc01','vc02','vc03','vc04',v!=='extract'?(VANILLA_INGREDIENTS[v]?.id):null].filter(Boolean),condition:null});
+  // 3b: Infuse vanilla (conditional — bean or paste only)
+  if(needsInfusion){
+    const infuseText=v==='bean'?'Cover the pot and let the vanilla bean steep in the hot dairy for 30 minutes. The longer infusion extracts deeper flavor from the bean. After steeping, remove the pod (you can rinse, dry, and reuse it once more, or make vanilla sugar).':'Cover the pot and let the vanilla paste infuse in the hot dairy for 30 minutes. This resting period lets the flavor develop fully.';
+    steps.push({id:'bs3b',order:3,title:'Infuse vanilla (30 min)',instruction:`${infuseText} After infusing, reheat the dairy to a gentle simmer before proceeding.`,timerSeconds:1800,ingredients:[],condition:v});
+  }
   // 4: Cornstarch addition (conditional)
   if(t==='cornstarch') steps.push({id:'bs4',order:4,title:'Add cornstarch slurry',instruction:'Whisk the cornstarch slurry into the hot dairy mixture. Return to heat and cook for 1 minute, stirring constantly, until slightly thickened. Remove from heat.',timerSeconds:60,ingredients:['ai-cs2','ai-cs2-m'],condition:'cornstarch'});
   // 5: Whisk yolks
-  steps.push({id:'bs5',order:5,title:'Whisk egg yolks',instruction:'In a medium bowl, whisk 2 egg yolks until smooth.',timerSeconds:null,ingredients:['vc05'],condition:null});
+  steps.push({id:'bs5',order:5,title:'Whisk egg yolks',instruction:'In a medium bowl, whisk your egg yolks (weigh them — reference is 30g) until smooth.',timerSeconds:null,ingredients:['vc05'],condition:null});
   // 6: Temper
   steps.push({id:'bs6',order:6,title:'Temper the eggs',instruction:'Add about half a cup of the hot dairy mixture to the yolks while whisking constantly. Pour slowly — this gradually raises the egg temperature without scrambling them. Then pour the tempered yolks back into the pot of hot dairy while whisking.',timerSeconds:null,ingredients:[],condition:null});
   // 7: Cook custard
-  steps.push({id:'bs7',order:7,title:'Cook the custard',instruction:'Place the pot over medium-low heat. Cook, stirring and scraping the bottom constantly with a rubber spatula to avoid curdling. When the custard thickens enough to coat the back of the spatula (a finger drawn across should leave a clean line), or reaches 80-85°C, immediately remove from heat. Do NOT let it boil.',timerSeconds:480,ingredients:[],condition:null});
+  steps.push({id:'bs7',order:7,title:'Cook the custard',instruction:'Place the pot over medium-low heat. Cook, stirring and scraping the bottom constantly with a rubber spatula to avoid curdling. When the custard thickens enough to coat the back of the spatula (a finger drawn across should leave a clean line), or reaches 80–85°C, immediately remove from heat. Do NOT let it boil.',timerSeconds:480,ingredients:[],condition:null});
   // 8: Tapioca starch (conditional)
   if(t==='tapioca_starch') steps.push({id:'bs8a',order:8,title:'Add tapioca starch',instruction:'Remove the custard from heat. Immediately whisk in the tapioca starch slurry. Stir well until fully incorporated.',timerSeconds:null,ingredients:['ai-ts','ai-ts-m'],condition:'tapioca_starch'});
   // 8 alt: Vanilla extract (conditional)
-  if(v==='extract') steps.push({id:'bs8b',order:8,title:'Add vanilla extract',instruction:'Stir in 2 tsp vanilla extract now. Extract is added after cooking because heat destroys its delicate flavor compounds.',timerSeconds:null,ingredients:['vi-extract'],condition:'extract'});
+  if(v==='extract') steps.push({id:'bs8b',order:8,title:'Add vanilla extract',instruction:'Stir in 6g vanilla extract now. Extract is added after cooking because heat destroys its delicate flavor compounds.',timerSeconds:null,ingredients:['vi-extract'],condition:'extract'});
   // 9: Strain and cool
-  steps.push({id:'bs9',order:9,title:'Strain and cool',instruction:`Immediately pour the custard through the fine-mesh strainer into the bowl sitting in the ice bath.${v==='bean'?' Remove the vanilla bean pod (rinse, dry, and save it for vanilla sugar).':''} Stir occasionally until custard is cool to the touch (below 10°C).`,timerSeconds:600,ingredients:[],condition:null});
+  steps.push({id:'bs9',order:9,title:'Strain and cool',instruction:`Immediately pour the custard through the fine-mesh strainer into the bowl sitting in the ice bath. Stir occasionally until custard is cool to the touch (below 10°C).`,timerSeconds:600,ingredients:[],condition:null});
   // 10: Gum stabilizer (conditional)
   if(t==='guar_gum'||t==='xanthan_gum'){
     const gumName=t==='guar_gum'?'guar gum':'xanthan gum';
@@ -144,12 +156,11 @@ function resolveBaselineSteps(prefs){
     steps.push({id:'bs10',order:10,title:`Blend in ${gumName}`,instruction:`Once the custard is chilled in the ice bath, add 0.3g ${gumName}. Use a hand blender or regular blender to whirl the custard for 30 seconds until the gum is fully dispersed. This must be done when cold — gums clump in hot liquid.`,timerSeconds:null,ingredients:[gumId],condition:t});
   }
   // 11: Cure
-  steps.push({id:'bs11',order:11,title:'Cure overnight',instruction:'Cover the custard with plastic wrap pressed directly onto the surface (to prevent a skin). Refrigerate for at least 4 hours, preferably overnight (8-12 hours). This \'aging\' step (エージング) lets fat crystallize, proteins hydrate, and flavors deepen. Your ice cream will be noticeably smoother and creamier.',timerSeconds:null,ingredients:[],condition:null});
+  steps.push({id:'bs11',order:11,title:'Cure overnight',instruction:'Cover the custard with plastic wrap pressed directly onto the surface (to prevent a skin). Refrigerate at 4°C for at least 4 hours, preferably overnight (8-12 hours). This \'aging\' step (エージング) lets fat crystallize, proteins hydrate, and flavors deepen. Your ice cream will be noticeably smoother and creamier.',timerSeconds:null,ingredients:[],condition:null});
   // 12: Churn
   steps.push({id:'bs12',order:12,title:'Churn',instruction:'Give the chilled custard a stir. Pour into your ice cream maker (STI 300ml). Churn according to machine instructions until it reaches soft-serve consistency — thick, creamy, and holding its shape. Typically 20-30 minutes.',timerSeconds:1500,ingredients:[],condition:null});
   // 13: Harden
   steps.push({id:'bs13',order:13,title:'Harden',instruction:'Transfer churned ice cream to an airtight container. Press plastic wrap directly onto the surface to prevent ice crystals. Freeze for at least 3-4 hours until firm. Let sit at room temperature for 5-10 minutes before scooping.',timerSeconds:null,ingredients:[],condition:null});
-  // Renumber sequentially
   return steps.map((s,i)=>({...s,order:i+1}));
 }
 
@@ -295,7 +306,7 @@ function PreferencesSetup({onSave}){
             ))}
           </div>
         </div>
-        <button onClick={()=>onSave({vanillaPreference:vanilla,textureAgentPreference:agent,defaultBatchSize:300})} className="w-full py-3.5 bg-accent text-white rounded-xl font-bold text-base hover:opacity-90 active:scale-[0.98] transition-all">
+        <button onClick={()=>onSave({vanillaPreference:vanilla,textureAgentPreference:agent,tempUnit:'C',defaultBatchSize:300})} className="w-full py-3.5 bg-accent text-white rounded-xl font-bold text-base hover:opacity-90 active:scale-[0.98] transition-all">
           Save & Start Cooking 🔥
         </button>
       </div>
@@ -307,8 +318,9 @@ function PreferencesSetup({onSave}){
 function PreferencesSheet({open,onClose,prefs,onSave}){
   const[vanilla,setVanilla]=useState(prefs?.vanillaPreference||'paste');
   const[agent,setAgent]=useState(prefs?.textureAgentPreference||'none');
-  useEffect(()=>{if(open){setVanilla(prefs?.vanillaPreference||'paste');setAgent(prefs?.textureAgentPreference||'none')}},[open]);
-  const handleSave=()=>{onSave({...prefs,vanillaPreference:vanilla,textureAgentPreference:agent});onClose()};
+  const[tempU,setTempU]=useState(prefs?.tempUnit||'C');
+  useEffect(()=>{if(open){setVanilla(prefs?.vanillaPreference||'paste');setAgent(prefs?.textureAgentPreference||'none');setTempU(prefs?.tempUnit||'C')}},[open]);
+  const handleSave=()=>{onSave({...prefs,vanillaPreference:vanilla,textureAgentPreference:agent,tempUnit:tempU});onClose()};
   return(
     <Modal open={open} onClose={onClose} title="Preferences">
       <div className="mb-4">
@@ -317,13 +329,19 @@ function PreferencesSheet({open,onClose,prefs,onSave}){
           <button key={o.key} onClick={()=>setVanilla(o.key)} className={`flex-1 py-2 px-2 rounded-lg text-xs font-semibold text-center transition-all ${vanilla===o.key?'bg-accent text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{o.label}</button>
         ))}</div>
       </div>
-      <div className="mb-5">
+      <div className="mb-4">
         <h4 className="font-semibold text-sm text-gray-700 mb-2">🧊 Texture agent</h4>
         <div className="space-y-1.5">{TEXTURE_AGENTS.map(o=>(
           <button key={o.key} onClick={()=>setAgent(o.key)} className={`w-full text-left px-3 py-2 rounded-lg transition-all ${agent===o.key?'bg-accent text-white':'bg-gray-50 hover:bg-gray-100'}`}>
             <span className={`text-sm font-semibold ${agent===o.key?'text-white':'text-gray-700'}`}>{o.label}</span>
             <span className={`text-xs ml-2 ${agent===o.key?'text-white/80':'text-gray-400'}`}>{o.desc}</span>
           </button>
+        ))}</div>
+      </div>
+      <div className="mb-5">
+        <h4 className="font-semibold text-sm text-gray-700 mb-2">🌡️ Temperature unit</h4>
+        <div className="flex gap-2">{[{k:'C',l:'°C (Celsius)'},{k:'F',l:'°F (Fahrenheit)'}].map(o=>(
+          <button key={o.k} onClick={()=>setTempU(o.k)} className={`flex-1 py-2 px-3 rounded-lg text-sm font-semibold text-center transition-all ${tempU===o.k?'bg-accent text-white':'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{o.l}</button>
         ))}</div>
       </div>
       <button onClick={handleSave} className="w-full py-2.5 bg-accent text-white rounded-xl font-semibold">Save Preferences</button>
@@ -370,8 +388,27 @@ function RecipeList({recipes,batches,onSelect,onAdd}){
 
 function RecipeDetail({recipe,batches,onBack,onEdit,onDuplicate,onDelete,onCook,onViewBatches,onExport,prefs,onOpenPrefs}){
   const[scale,setScale]=useState(recipe.servings);const[showDel,setShowDel]=useState(false);const[showMenu,setShowMenu]=useState(false);
+  const[yolkWeight,setYolkWeight]=useState(()=>{const ref=YOLK_REF_G*(scale/300);return Math.round(ref)});
+  const[yolkEdited,setYolkEdited]=useState(false);
   const avg=avgRating(batches,recipe.id);const count=batchCount(batches,recipe.id);
   const menuRef=useRef(null);
+  const tempUnit=prefs?.tempUnit||'C';
+  // Yolk scaling: batchMult scales everything by batch size, yolkMult adjusts non-yolk ingredients by yolk ratio
+  const batchMult=scale/(recipe.servings||300);
+  const yolkRef=Math.round(YOLK_REF_G*batchMult);
+  const yolkMult=yolkEdited&&recipe.isBaseline?(yolkWeight/yolkRef):1;
+  const isScaled=yolkEdited&&yolkMult!==1;
+  const scaleIng=(ing)=>{
+    if(typeof ing.amount==='string')return ing.amount;
+    if(ing.isYolk) return yolkEdited?yolkWeight:Math.round(ing.amount*batchMult);
+    const base=ing.amount*batchMult*yolkMult;
+    // Stabilizers: show decimals where needed
+    if(ing.category==='stabilizer')return Math.round(base*100)/100;
+    return Math.round(base);
+  };
+  const handleBatchChange=(v)=>{const val=+v||recipe.servings;setScale(val);if(!yolkEdited)setYolkWeight(Math.round(YOLK_REF_G*(val/300)))};
+  const handleYolkChange=(v)=>{setYolkWeight(+v||yolkRef);setYolkEdited(true)};
+  const resetYolk=()=>{setYolkWeight(yolkRef);setYolkEdited(false)};
   useEffect(()=>{if(!showMenu)return;const h=e=>{if(menuRef.current&&!menuRef.current.contains(e.target))setShowMenu(false)};document.addEventListener('pointerdown',h);return()=>document.removeEventListener('pointerdown',h)},[showMenu]);
   return(<div className="pb-20 fade-in">
     <BackBtn onClick={onBack}/>
@@ -401,13 +438,20 @@ function RecipeDetail({recipe,batches,onBack,onEdit,onDuplicate,onDelete,onCook,
     </div>
     {/* Ingredients */}
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
-      <div className="flex items-center justify-between mb-3"><h3 className="font-bold text-gray-900">Ingredients</h3><div className="flex items-center gap-2"><span className="text-xs text-gray-500">Batch:</span><input type="number" value={scale} onChange={e=>setScale(+e.target.value||recipe.servings)} min={50} step={50} className="w-20 px-2 py-1 border rounded-lg text-sm text-center font-semibold"/><span className="text-xs text-gray-500">ml</span></div></div>
-      <div className="divide-y">{recipe.ingredients.map(ing=>(<div key={ing.id} className="py-2 flex items-center justify-between"><div><span className="font-medium text-gray-900">{ing.name}</span>{ing.nameJa&&<span className="text-xs text-gray-400 ml-2">{ing.nameJa}</span>}</div><span className="font-semibold text-accent">{scaleAmt(ing.amount,recipe.servings,scale)} {ing.unit}</span></div>))}</div>
+      <div className="flex items-center justify-between mb-3"><h3 className="font-bold text-gray-900">Ingredients</h3><div className="flex items-center gap-2"><span className="text-xs text-gray-500">Batch:</span><input type="number" value={scale} onChange={e=>handleBatchChange(e.target.value)} min={50} step={50} className="w-20 px-2 py-1 border rounded-lg text-sm text-center font-semibold"/><span className="text-xs text-gray-500">ml</span></div></div>
+      {isScaled&&<div className="flex items-center gap-2 mb-3"><span className="text-xs bg-blue-50 text-blue-600 font-semibold px-2 py-0.5 rounded-full">Scaled to yolk weight</span><button onClick={resetYolk} className="text-xs text-accent font-semibold hover:underline">Reset</button></div>}
+      <div className="divide-y">{recipe.ingredients.map(ing=>{
+        const amt=recipe.isBaseline?scaleIng(ing):scaleAmt(ing.amount,recipe.servings,scale);
+        const isYolk=ing.isYolk&&recipe.isBaseline;
+        return(<div key={ing.id} className="py-2 flex items-center justify-between">
+          <div><span className="font-medium text-gray-900">{ing.name}</span>{ing.nameJa&&<span className="text-xs text-gray-400 ml-2">{ing.nameJa}</span>}</div>
+          {isYolk?(<div className="flex items-center gap-1"><input type="number" value={yolkWeight} onChange={e=>handleYolkChange(e.target.value)} min={10} step={1} className="w-16 px-2 py-1 border-2 border-accent/30 rounded-lg text-sm text-center font-bold text-accent bg-accent/5 focus:border-accent focus:outline-none"/><span className="text-sm font-semibold text-accent">g</span></div>):(<span className={`font-semibold ${isScaled&&!ing.isYolk?'text-blue-600':'text-accent'}`}>{amt} {ing.unit}</span>)}
+        </div>)})}</div>
     </div>
     {/* Steps */}
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
       <h3 className="font-bold text-gray-900 mb-3">Steps</h3>
-      <div className="space-y-4">{recipe.steps.sort((a,b)=>a.order-b.order).map((step,i)=>(<div key={step.id} className="flex gap-3"><div className="w-7 h-7 rounded-full bg-accent/10 text-accent flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">{i+1}</div><div className="flex-1"><div className="font-semibold text-gray-900 mb-0.5">{step.title}</div><p className="text-sm text-gray-600 leading-relaxed">{step.instruction}</p>{step.timerSeconds&&<span className="inline-flex items-center gap-1 text-xs text-accent font-semibold mt-1">⏱ {Math.round(step.timerSeconds/60)} min</span>}</div></div>))}</div>
+      <div className="space-y-4">{recipe.steps.sort((a,b)=>a.order-b.order).map((step,i)=>(<div key={step.id} className="flex gap-3"><div className="w-7 h-7 rounded-full bg-accent/10 text-accent flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">{i+1}</div><div className="flex-1"><div className="font-semibold text-gray-900 mb-0.5">{step.title}</div><p className="text-sm text-gray-600 leading-relaxed">{convertTempsInText(step.instruction,tempUnit)}</p>{step.timerSeconds&&<span className="inline-flex items-center gap-1 text-xs text-accent font-semibold mt-1">⏱ {Math.round(step.timerSeconds/60)} min</span>}</div></div>))}</div>
     </div>
     {recipe.notes&&(<div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4"><h3 className="font-bold text-gray-900 mb-2">Notes</h3><p className="text-sm text-gray-600 whitespace-pre-line">{recipe.notes}</p></div>)}
     {recipe.source?.rawText&&(<div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4"><h3 className="font-bold text-gray-900 mb-2">Source</h3>{recipe.source.type==='url'&&recipe.source.url&&<a href={recipe.source.url} target="_blank" className="text-accent text-sm underline break-all">{recipe.source.url}</a>}{recipe.source.type==='book'&&<p className="text-sm text-gray-600">{recipe.source.bookTitle} — {recipe.source.bookPage}</p>}<p className="text-sm text-gray-500 mt-1 whitespace-pre-line">{recipe.source.rawText}</p></div>)}
@@ -475,11 +519,12 @@ function JsonImportModal({open,onClose,onImport}){
   return(<Modal open={open} onClose={onClose} title="Import Recipe (JSON)" wide><textarea value={json} onChange={e=>{setJson(e.target.value);setError('');setPreview(null)}} rows={10} placeholder="Paste recipe JSON here..." className="w-full px-3 py-2 border rounded-xl text-sm font-mono mb-3 focus:ring-2 focus:ring-accent/30 focus:outline-none"/>{error&&<p className="text-red-500 text-sm mb-3">{error}</p>}{preview&&(<div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-3"><h4 className="font-bold text-green-800 mb-1">{preview.name}</h4><p className="text-sm text-green-700">{preview.category} · {preview.ingredients?.length} ingredients · {preview.steps?.length} steps</p></div>)}<div className="flex gap-3">{!preview&&<button onClick={handleParse} className="flex-1 py-2 bg-gray-800 text-white rounded-xl font-semibold">Validate JSON</button>}{preview&&<button onClick={()=>{onImport(preview);onClose();setJson('');setPreview(null)}} className="flex-1 py-2 bg-accent text-white rounded-xl font-semibold">Import Recipe</button>}</div></Modal>);
 }
 
-function RecipesTab({recipes,batches,nav,addRecipe,updateRecipe,deleteRecipe,duplicateRecipe,importRecipe,prefs,onOpenPrefs}){
+function RecipesTab({recipes,batches,nav,addRecipe,updateRecipe,deleteRecipe,duplicateRecipe,importRecipe,prefs,onPrefsChange}){
   const[view,setView]=useState('list');const[selectedId,setSelectedId]=useState(null);const[editId,setEditId]=useState(null);
   const[showImport,setShowImport]=useState(false);const[showAddMenu,setShowAddMenu]=useState(false);
+  const[showPrefs,setShowPrefs]=useState(false);
   const selected=recipes.find(r=>r.id===selectedId);const editing=editId?recipes.find(r=>r.id===editId):null;
-  if(view==='detail'&&selected)return(<RecipeDetail recipe={selected} batches={batches} prefs={prefs} onOpenPrefs={onOpenPrefs} onBack={()=>setView('list')} onEdit={()=>{setEditId(selected.id);setView('form')}} onDuplicate={()=>{duplicateRecipe(selected.id);setView('list')}} onDelete={()=>{deleteRecipe(selected.id);setView('list')}} onCook={()=>nav('cook','active',{recipeId:selected.id})} onViewBatches={()=>nav('log','list',{recipeFilter:selected.id})} onExport={()=>{const blob=new Blob([JSON.stringify(selected,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${selected.name.replace(/\s+/g,'-')}.json`;a.click()}}/>);
+  if(view==='detail'&&selected)return(<><RecipeDetail recipe={selected} batches={batches} prefs={prefs} onOpenPrefs={()=>setShowPrefs(true)} onBack={()=>setView('list')} onEdit={()=>{setEditId(selected.id);setView('form')}} onDuplicate={()=>{duplicateRecipe(selected.id);setView('list')}} onDelete={()=>{deleteRecipe(selected.id);setView('list')}} onCook={()=>nav('cook-active',{recipeId:selected.id})} onViewBatches={()=>nav('log',{filter:selected.id})} onExport={()=>{const blob=new Blob([JSON.stringify(selected,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${selected.name.replace(/\s+/g,'-')}.json`;a.click()}}/><PreferencesSheet open={showPrefs} onClose={()=>setShowPrefs(false)} prefs={prefs} onSave={onPrefsChange}/></>);
   if(view==='form')return(<RecipeForm recipe={editing} onBack={()=>{setView(editing?'detail':'list');setEditId(null)}} onSave={(data)=>{if(editing){updateRecipe(editing.id,data);setView('detail')}else{addRecipe(data);setView('list')}setEditId(null)}}/>);
   return(<><RecipeList recipes={recipes} batches={batches} onSelect={id=>{setSelectedId(id);setView('detail')}} onAdd={()=>setShowAddMenu(true)}/>{showAddMenu&&(<div className="fixed inset-0 z-40" onClick={()=>setShowAddMenu(false)}><div className="fixed inset-0 bg-black/20"/><div className="fixed bottom-28 right-5 bg-white rounded-2xl shadow-xl p-2 z-50 fade-in w-52" onClick={e=>e.stopPropagation()}><button onClick={()=>{setShowAddMenu(false);setEditId(null);setView('form')}} className="w-full px-4 py-3 text-left text-sm font-semibold hover:bg-gray-50 rounded-xl">📝 New Recipe</button><button onClick={()=>{setShowAddMenu(false);setShowImport(true)}} className="w-full px-4 py-3 text-left text-sm font-semibold hover:bg-gray-50 rounded-xl">📥 Import JSON</button></div></div>)}<JsonImportModal open={showImport} onClose={()=>setShowImport(false)} onImport={importRecipe}/></>);
 }
@@ -523,7 +568,7 @@ function CookMode({recipe,onExit,onLogBatch,prefs,onOpenPrefs}){
       <div className="text-accent font-bold text-sm mb-2">Step {step+1} of {sorted.length}</div>
       <h2 className="text-2xl font-bold mb-4">{current.title}</h2>
       {stepIngs.length>0&&(<div className="bg-gray-800/50 rounded-xl p-4 mb-4">{stepIngs.map(ing=>(<div key={ing.id} className="flex justify-between py-1.5 text-sm"><span className="text-gray-300">{ing.name}</span><span className="text-accent font-bold">{ing.amount} {ing.unit}</span></div>))}</div>)}
-      <p className="text-lg leading-relaxed text-gray-200 mb-6">{current.instruction}</p>
+      <p className="text-lg leading-relaxed text-gray-200 mb-6">{convertTempsInText(current.instruction,prefs?.tempUnit)}</p>
       {current.timerSeconds&&<CookTimer seconds={current.timerSeconds} onDone={()=>{}}/>}
       <div className="text-center text-gray-600 text-xs mt-4 pb-2">Swipe left/right to navigate</div>
     </div>
@@ -584,7 +629,7 @@ function BatchForm({recipes,editBatch,initialRecipeId,onSave,onBack,prefs}){
   const[photoUrl,setPhotoUrl]=useState(editBatch?.photoUrl||null);
   const fileRef=useRef(null);
   const handlePhoto=(e)=>{const file=e.target.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=(ev)=>{const img=new Image();img.onload=()=>{const max=800;let w=img.width,h=img.height;if(w>max){h=h*(max/w);w=max}if(h>max){w=w*(max/h);h=max}const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);setPhotoUrl(c.toDataURL('image/jpeg',0.7))};img.src=ev.target.result};reader.readAsDataURL(file)};
-  const handleSave=()=>{if(!recipeId)return alert('Please select a recipe');if(!overall)return alert('Please rate the batch overall');onSave({...(editBatch||{}),recipeId,date,modifications,cafeWorthy,ratings:{overall,texture,sweetness,scoopability,flavor},churningTime:churningTime?+churningTime:null,churningNotes,flavorNotes,textureNotes,temperature:{custardTemp:custardTemp?+custardTemp:null,preChurnTemp:preChurnTemp?+preChurnTemp:null},photoUrl,vanillaUsed:editBatch?.vanillaUsed||(prefs?.vanillaPreference||null),textureAgentUsed:editBatch?.textureAgentUsed||(prefs?.textureAgentPreference||null)})};
+  const handleSave=()=>{if(!recipeId)return alert('Please select a recipe');if(!overall)return alert('Please rate the batch overall');onSave({...(editBatch||{}),recipeId,date,modifications,cafeWorthy,ratings:{overall,texture,sweetness,scoopability,flavor},churningTime:churningTime?+churningTime:null,churningNotes,flavorNotes,textureNotes,temperature:{custardTemp:custardTemp?+custardTemp:null,preChurnTemp:preChurnTemp?+preChurnTemp:null},photoUrl,vanillaUsed:editBatch?.vanillaUsed||(prefs?.vanillaPreference||null),textureAgentUsed:editBatch?.textureAgentUsed||(prefs?.textureAgentPreference||null),yolkWeightG:editBatch?.yolkWeightG||null,scaledFromBatchMl:editBatch?.scaledFromBatchMl||300})};
   return(<div className="pb-20 fade-in">
     <BackBtn onClick={onBack}/><h2 className="text-xl font-bold mb-4">{isEdit?'Edit Batch':'Log Batch'}</h2>
     <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4 space-y-3">
@@ -594,7 +639,7 @@ function BatchForm({recipes,editBatch,initialRecipeId,onSave,onBack,prefs}){
       {prefs&&<div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-2.5"><div className="text-xs font-semibold text-indigo-700 mb-0.5">Active preferences</div><div className="text-sm text-indigo-600">{VANILLA_LABELS[prefs.vanillaPreference]||'—'} vanilla · {AGENT_LABELS[prefs.textureAgentPreference]||'None'} texture agent</div></div>}
     </div>
     <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4"><h3 className="font-bold text-gray-900 mb-3">Ratings</h3><RatingSlider value={overall} onChange={setOverall} label="Overall" labels={RATING_LABELS.overall}/><RatingSlider value={texture} onChange={setTexture} label="Texture" labels={RATING_LABELS.texture}/><RatingSlider value={sweetness} onChange={setSweetness} label="Sweetness" labels={RATING_LABELS.sweetness}/><RatingSlider value={scoopability} onChange={setScoopability} label="Scoopability" labels={RATING_LABELS.scoopability}/><RatingSlider value={flavor} onChange={setFlavor} label="Flavor" labels={RATING_LABELS.flavor}/><div className="flex items-center gap-3 mt-4 pt-3 border-t"><button onClick={()=>setCafeWorthy(!cafeWorthy)} className={`px-4 py-2.5 rounded-xl font-semibold text-sm transition-all ${cafeWorthy?'bg-green-500 text-white':'bg-gray-100 text-gray-500'}`}>☕ {cafeWorthy?'Cafe Worthy!':'Cafe Worthy?'}</button><span className="text-xs text-gray-400">Would you serve this at the cafe?</span></div></div>
-    <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4 space-y-3"><h3 className="font-bold text-gray-900 mb-1">Notes</h3><div><label className="text-xs text-gray-500">Flavor notes</label><textarea value={flavorNotes} onChange={e=>setFlavorNotes(e.target.value)} rows={2} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div><label className="text-xs text-gray-500">Texture notes</label><textarea value={textureNotes} onChange={e=>setTextureNotes(e.target.value)} rows={2} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div><label className="text-xs text-gray-500">Churning notes</label><textarea value={churningNotes} onChange={e=>setChurningNotes(e.target.value)} rows={2} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div className="flex gap-3"><div className="flex-1"><label className="text-xs text-gray-500">Churning time (min)</label><input type="number" value={churningTime} onChange={e=>setChurningTime(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div className="flex-1"><label className="text-xs text-gray-500">Custard °C</label><input type="number" value={custardTemp} onChange={e=>setCustardTemp(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div className="flex-1"><label className="text-xs text-gray-500">Pre-churn °C</label><input type="number" value={preChurnTemp} onChange={e=>setPreChurnTemp(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm"/></div></div></div>
+    <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4 space-y-3"><h3 className="font-bold text-gray-900 mb-1">Notes</h3><div><label className="text-xs text-gray-500">Flavor notes</label><textarea value={flavorNotes} onChange={e=>setFlavorNotes(e.target.value)} rows={2} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div><label className="text-xs text-gray-500">Texture notes</label><textarea value={textureNotes} onChange={e=>setTextureNotes(e.target.value)} rows={2} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div><label className="text-xs text-gray-500">Churning notes</label><textarea value={churningNotes} onChange={e=>setChurningNotes(e.target.value)} rows={2} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div className="flex gap-3"><div className="flex-1"><label className="text-xs text-gray-500">Churning time (min)</label><input type="number" value={churningTime} onChange={e=>setChurningTime(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div className="flex-1"><label className="text-xs text-gray-500">Custard {prefs?.tempUnit==='F'?'°F':'°C'}</label><input type="number" value={custardTemp} onChange={e=>setCustardTemp(e.target.value)} placeholder={prefs?.tempUnit==='F'?'180':'82'} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div className="flex-1"><label className="text-xs text-gray-500">Pre-churn {prefs?.tempUnit==='F'?'°F':'°C'}</label><input type="number" value={preChurnTemp} onChange={e=>setPreChurnTemp(e.target.value)} placeholder={prefs?.tempUnit==='F'?'50':'10'} className="w-full px-3 py-2 border rounded-xl text-sm"/></div></div></div>
     <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4">
       <h3 className="font-bold text-gray-900 mb-2">Photo</h3>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} className="hidden"/>
