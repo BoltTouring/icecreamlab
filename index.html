@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Ice Cream Lab — アイスクリームラボ</title>
 <meta name="theme-color" content="#FF5722">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -29,7 +29,7 @@ input,textarea,select{font-family:inherit}
 @keyframes timerPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
 .fade-in{animation:fadeIn .3s ease-out}.slide-up{animation:slideUp .3s ease-out}
 .timer-pulse{animation:timerPulse 1s ease-in-out infinite}
-.cook-mode{background:#111827;color:#F9FAFB;min-height:100vh}
+.cook-mode{background:#111827;color:#F9FAFB;min-height:100vh;min-height:100dvh}
 .heat-cell{width:13px;height:13px;border-radius:2px}
 </style>
 </head>
@@ -500,7 +500,7 @@ function CookMode({recipe,onExit,onLogBatch,prefs,onOpenPrefs}){
   const[finished,setFinished]=useState(false);const wakeLock=useRef(null);const touchStart=useRef(null);
   const sorted=useMemo(()=>[...recipe.steps].sort((a,b)=>a.order-b.order),[recipe.steps]);
   const current=sorted[step];const stepIngs=getStepIngredients(current,recipe.ingredients);
-  useEffect(()=>{(async()=>{try{wakeLock.current=await navigator.wakeLock?.request('screen')}catch{}})();return()=>{wakeLock.current?.release()}},[]);
+  useEffect(()=>{(async()=>{try{wakeLock.current=await navigator.wakeLock?.request('screen')}catch{}try{document.documentElement.requestFullscreen?.({navigationUI:'hide'})}catch{}})();return()=>{wakeLock.current?.release();if(document.fullscreenElement)document.exitFullscreen?.().catch(()=>{})}},[]);
   const goNext=useCallback(()=>{if(step<sorted.length-1){setCompleted(p=>new Set(p).add(step));setStep(step+1)}else{setCompleted(p=>new Set(p).add(step));setFinished(true)}},[step,sorted.length]);
   const goPrev=useCallback(()=>{if(step>0)setStep(step-1)},[step]);
   const onTouchStart=useCallback(e=>{touchStart.current={x:e.touches[0].clientX,y:e.touches[0].clientY}},[]);
@@ -527,7 +527,7 @@ function CookMode({recipe,onExit,onLogBatch,prefs,onOpenPrefs}){
       {current.timerSeconds&&<CookTimer seconds={current.timerSeconds} onDone={()=>{}}/>}
       <div className="text-center text-gray-600 text-xs mt-4 pb-2">Swipe left/right to navigate</div>
     </div>
-    <div className="px-4 pt-3 border-t border-gray-800 flex gap-3 flex-shrink-0 bg-gray-900" style={{paddingBottom:'calc(16px + env(safe-area-inset-bottom, 20px))'}}>
+    <div className="px-4 pt-3 pb-10 border-t border-gray-800 flex gap-3 flex-shrink-0 bg-gray-900">
       <button onClick={goPrev} disabled={step===0} className={`w-20 py-3.5 rounded-xl font-bold text-sm min-h-[48px] ${step===0?'bg-gray-800 text-gray-600':'bg-gray-700 text-white active:bg-gray-600'}`}>← Prev</button>
       {step<sorted.length-1?(<button onClick={goNext} className="flex-1 py-3.5 bg-accent text-white rounded-xl font-bold text-base min-h-[48px] hover:opacity-90 active:scale-[0.98] transition-all">Next →</button>):(<button onClick={goNext} className="flex-1 py-3.5 bg-green-500 text-white rounded-xl font-bold text-base min-h-[48px] hover:opacity-90 active:scale-[0.98] transition-all">Finish ✓</button>)}
     </div>
