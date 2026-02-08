@@ -6,6 +6,11 @@
 <title>Ice Cream Lab — アイスクリームラボ</title>
 <meta name="theme-color" content="#FF5722">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ice Cream Lab">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
@@ -795,7 +800,9 @@ function CookMode({ recipe, onExit, onLogBatch }) {
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   const [finished, setFinished] = useState(false);
   const wakeLock = useRef(null);
-  const sorted = [...recipe.steps].sort((a, b) => a.order - b.order);
+  const touchStart = useRef(null);
+  const contentRef = useRef(null);
+  const sorted = useMemo(() => [...recipe.steps].sort((a, b) => a.order - b.order), [recipe.steps]);
   const current = sorted[step];
   const stepIngs = getStepIngredients(current, recipe.ingredients);
 
@@ -804,8 +811,37 @@ function CookMode({ recipe, onExit, onLogBatch }) {
     return () => { wakeLock.current?.release(); };
   }, []);
 
+  const goNext = useCallback(() => {
+    if (step < sorted.length - 1) { setCompleted(p => new Set(p).add(step)); setStep(step + 1); }
+    else { setCompleted(p => new Set(p).add(step)); setFinished(true); }
+  }, [step, sorted.length]);
+
+  const goPrev = useCallback(() => { if (step > 0) setStep(step - 1); }, [step]);
+
+  // Swipe gesture handling
+  const onTouchStart = useCallback((e) => { touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; }, []);
+  const onTouchEnd = useCallback((e) => {
+    if (!touchStart.current) return;
+    const dx = e.changedTouches[0].clientX - touchStart.current.x;
+    const dy = e.changedTouches[0].clientY - touchStart.current.y;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 60) {
+      if (dx < 0) goNext(); else goPrev();
+    }
+    touchStart.current = null;
+  }, [goNext, goPrev]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); goNext(); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); goPrev(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [goNext, goPrev]);
+
   if (finished) return (
-    <div className="cook-mode flex flex-col items-center justify-center p-8 text-center min-h-screen">
+    <div className="cook-mode fixed inset-0 z-50 flex flex-col items-center justify-center p-8 text-center">
       <div className="text-6xl mb-6">🎉</div>
       <h2 className="text-2xl font-bold mb-2">All done!</h2>
       <p className="text-gray-400 mb-8">How did it go? Log this batch to track your progress.</p>
@@ -815,54 +851,75 @@ function CookMode({ recipe, onExit, onLogBatch }) {
   );
 
   return (
-    <div className="cook-mode min-h-screen flex flex-col">
+    <div className="cook-mode fixed inset-0 z-50 flex flex-col" onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-        <button onClick={() => setShowExitConfirm(true)} className="text-gray-400 hover:text-white font-semibold text-sm">✕ Exit</button>
-        <span className="text-sm text-gray-400 font-medium">{recipe.name}</span>
-        <button onClick={() => setShowIngredients(true)} className="text-accent font-semibold text-sm">📋 All</button>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 flex-shrink-0">
+        <button onClick={() => setShowExitConfirm(true)} className="text-gray-400 hover:text-white font-semibold text-sm min-w-[48px] min-h-[48px] flex items-center">✕ Exit</button>
+        <span className="text-sm text-gray-400 font-medium truncate mx-2">{recipe.name}</span>
+        <button onClick={() => setShowIngredients(true)} className="text-accent font-semibold text-sm min-w-[48px] min-h-[48px] flex items-center justify-end">📋 All</button>
       </div>
 
       {/* Progress bar */}
-      <div className="flex gap-1 px-4 py-3">
+      <div className="flex gap-1 px-4 py-3 flex-shrink-0">
         {sorted.map((s, i) => (
-          <div key={s.id} className={`flex-1 h-1.5 rounded-full transition-all ${i < step ? 'bg-green-500' : i === step ? 'bg-accent' : 'bg-gray-700'}`} />
+          <div key={s.id} className={`flex-1 h-2 rounded-full transition-all ${i < step ? 'bg-green-500' : i === step ? 'bg-accent' : 'bg-gray-700'}`} />
         ))}
       </div>
 
-      {/* Step content */}
-      <div className="flex-1 px-6 py-4 overflow-y-auto">
-        <div className="text-accent font-bold text-sm mb-2">Step {step + 1} of {sorted.length}</div>
-        <h2 className="text-2xl font-bold mb-4">{current.title}</h2>
+      {/* Main area: side arrows + content */}
+      <div className="flex-1 flex items-stretch overflow-hidden relative">
+        {/* Left arrow */}
+        <button onClick={goPrev} disabled={step === 0}
+          className={`flex-shrink-0 w-14 flex items-center justify-center text-3xl font-bold transition-all z-10 ${step === 0 ? 'text-gray-800 cursor-default' : 'text-gray-400 hover:text-white hover:bg-gray-800/50 active:bg-gray-700/50'}`}
+          style={{ minHeight: 48 }}>
+          ‹
+        </button>
 
-        {stepIngs.length > 0 && (
-          <div className="bg-gray-800/50 rounded-xl p-4 mb-4">
-            {stepIngs.map(ing => (
-              <div key={ing.id} className="flex justify-between py-1 text-sm">
-                <span className="text-gray-300">{ing.name}</span>
-                <span className="text-accent font-bold">{ing.amount} {ing.unit}</span>
-              </div>
-            ))}
-          </div>
-        )}
+        {/* Step content */}
+        <div ref={contentRef} className="flex-1 overflow-y-auto py-4 px-2">
+          <div className="text-accent font-bold text-sm mb-2">Step {step + 1} of {sorted.length}</div>
+          <h2 className="text-2xl font-bold mb-4">{current.title}</h2>
 
-        <p className="text-lg leading-relaxed text-gray-200 mb-6">{current.instruction}</p>
+          {stepIngs.length > 0 && (
+            <div className="bg-gray-800/50 rounded-xl p-4 mb-4">
+              {stepIngs.map(ing => (
+                <div key={ing.id} className="flex justify-between py-1.5 text-sm">
+                  <span className="text-gray-300">{ing.name}</span>
+                  <span className="text-accent font-bold">{ing.amount} {ing.unit}</span>
+                </div>
+              ))}
+            </div>
+          )}
 
-        {current.timerSeconds && <CookTimer seconds={current.timerSeconds} onDone={() => {}} />}
+          <p className="text-lg leading-relaxed text-gray-200 mb-6">{current.instruction}</p>
+
+          {current.timerSeconds && <CookTimer seconds={current.timerSeconds} onDone={() => {}} />}
+
+          <div className="text-center text-gray-600 text-xs mt-4 pb-2">Swipe or use arrows to navigate</div>
+        </div>
+
+        {/* Right arrow */}
+        <button onClick={goNext}
+          className="flex-shrink-0 w-14 flex items-center justify-center text-3xl font-bold transition-all text-gray-400 hover:text-white hover:bg-gray-800/50 active:bg-gray-700/50 z-10"
+          style={{ minHeight: 48 }}>
+          ›
+        </button>
       </div>
 
-      {/* Navigation */}
-      <div className="px-4 py-4 border-t border-gray-800 flex gap-3">
-        <button onClick={() => step > 0 && setStep(step - 1)} disabled={step === 0}
-          className={`px-6 py-4 rounded-xl font-bold text-base ${step === 0 ? 'bg-gray-800 text-gray-600' : 'bg-gray-700 text-white'}`}>‹ Prev</button>
+      {/* Bottom navigation */}
+      <div className="px-4 py-4 border-t border-gray-800 flex gap-3 flex-shrink-0 pb-[max(16px,env(safe-area-inset-bottom))]">
+        <button onClick={goPrev} disabled={step === 0}
+          className={`px-6 py-4 rounded-xl font-bold text-base min-h-[56px] ${step === 0 ? 'bg-gray-800 text-gray-600' : 'bg-gray-700 text-white active:bg-gray-600'}`}>
+          ‹ Prev
+        </button>
         {step < sorted.length - 1 ? (
-          <button onClick={() => { setCompleted(p => new Set(p).add(step)); setStep(step + 1); }}
-            className="flex-1 py-4 bg-accent text-white rounded-xl font-bold text-lg hover:opacity-90 active:scale-[0.98]">
-            Done ✓ Next
+          <button onClick={goNext}
+            className="flex-1 py-4 bg-accent text-white rounded-xl font-bold text-lg min-h-[56px] hover:opacity-90 active:scale-[0.98] transition-all">
+            Done ✓ Next ›
           </button>
         ) : (
-          <button onClick={() => { setCompleted(p => new Set(p).add(step)); setFinished(true); }}
-            className="flex-1 py-4 bg-green-500 text-white rounded-xl font-bold text-lg hover:opacity-90 active:scale-[0.98]">
+          <button onClick={goNext}
+            className="flex-1 py-4 bg-green-500 text-white rounded-xl font-bold text-lg min-h-[56px] hover:opacity-90 active:scale-[0.98] transition-all">
             Finish! ✓
           </button>
         )}
@@ -870,10 +927,10 @@ function CookMode({ recipe, onExit, onLogBatch }) {
 
       {/* Ingredients overlay */}
       {showIngredients && (
-        <div className="fixed inset-0 z-50 bg-gray-900/95 flex flex-col">
+        <div className="fixed inset-0 z-[60] bg-gray-900/95 flex flex-col">
           <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
             <h3 className="font-bold text-lg">All Ingredients</h3>
-            <button onClick={() => setShowIngredients(false)} className="text-gray-400 hover:text-white text-xl">×</button>
+            <button onClick={() => setShowIngredients(false)} className="text-gray-400 hover:text-white text-xl min-w-[48px] min-h-[48px] flex items-center justify-center">×</button>
           </div>
           <div className="flex-1 overflow-y-auto px-5 py-4">
             {recipe.ingredients.map(ing => (
@@ -891,14 +948,14 @@ function CookMode({ recipe, onExit, onLogBatch }) {
 
       {/* Exit confirm */}
       {showExitConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/60" onClick={() => setShowExitConfirm(false)} />
           <div className="relative bg-gray-800 rounded-2xl p-6 max-w-sm w-full">
             <h3 className="font-bold text-lg mb-2">Exit cook mode?</h3>
             <p className="text-gray-400 mb-5">Your progress won't be saved.</p>
             <div className="flex gap-3">
-              <button onClick={() => setShowExitConfirm(false)} className="flex-1 py-3 rounded-xl bg-gray-700 text-white font-semibold">Stay</button>
-              <button onClick={onExit} className="flex-1 py-3 rounded-xl bg-red-500 text-white font-semibold">Exit</button>
+              <button onClick={() => setShowExitConfirm(false)} className="flex-1 py-3 rounded-xl bg-gray-700 text-white font-semibold min-h-[48px]">Stay</button>
+              <button onClick={onExit} className="flex-1 py-3 rounded-xl bg-red-500 text-white font-semibold min-h-[48px]">Exit</button>
             </div>
           </div>
         </div>
@@ -907,16 +964,19 @@ function CookMode({ recipe, onExit, onLogBatch }) {
   );
 }
 
-function CookTab({ recipes, batches, nav, initialRecipeId }) {
+function CookTab({ recipes, batches, nav, initialRecipeId, onCookingChange }) {
   const [selectedId, setSelectedId] = useState(initialRecipeId || null);
   const [cooking, setCooking] = useState(!!initialRecipeId);
   const [search, setSearch] = useState('');
 
   const recipe = recipes.find(r => r.id === selectedId);
 
+  // Signal to parent when cooking state changes
+  useEffect(() => { onCookingChange?.(cooking); }, [cooking]);
+
   if (cooking && recipe) return (
     <CookMode recipe={recipe} onExit={() => { setCooking(false); setSelectedId(null); }}
-      onLogBatch={() => nav('log', 'add', { recipeId: recipe.id })} />
+      onLogBatch={() => { setCooking(false); nav('log', 'add', { recipeId: recipe.id }); }} />
   );
 
   const filtered = search ? recipes.filter(r => r.name.toLowerCase().includes(search.toLowerCase())) : recipes;
@@ -1661,6 +1721,7 @@ function App() {
   const [tab, setTab] = useState('recipes');
   const [navParams, setNavParams] = useState({});
   const [showBackup, setShowBackup] = useState(false);
+  const [isCooking, setIsCooking] = useState(false);
 
   const nav = (newTab, screen, params = {}) => {
     setTab(newTab);
@@ -1679,8 +1740,8 @@ function App() {
     window.location.reload();
   };
 
-  // Check if in cook mode (hide chrome)
-  const inCookMode = tab === 'cook' && navParams.screen === 'active';
+  // Cook mode detected from either route or CookTab internal state
+  const inCookMode = isCooking || (tab === 'cook' && navParams.screen === 'active');
 
   return (
     <div className={`${inCookMode ? '' : 'max-w-lg mx-auto'}`}>
@@ -1702,7 +1763,7 @@ function App() {
           duplicateRecipe={duplicateRecipe} importRecipe={importRecipe} />}
 
         {tab === 'cook' && <CookTab recipes={recipes} batches={batches} nav={nav}
-          initialRecipeId={navParams.recipeId} />}
+          initialRecipeId={navParams.recipeId} onCookingChange={setIsCooking} />}
 
         {tab === 'log' && <LogTab recipes={recipes} batches={batches}
           addBatch={addBatch} updateBatch={updateBatch} deleteBatch={deleteBatch} nav={nav}
@@ -1725,6 +1786,16 @@ function App() {
 // ══════════════════════════════════════════════
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 
+</script>
+<script>
+// Register Service Worker for PWA
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => console.log('SW registered:', reg.scope))
+      .catch(err => console.log('SW registration failed:', err));
+  });
+}
 </script>
 </body>
 </html>
