@@ -77,11 +77,10 @@ const AGENT_LABELS={none:'None',commercial_stabilizer:'Stabilizer',guar_gum:'Gua
 // DYNAMIC BASELINE RECIPE
 // ══════════════════════════════════════════════
 const BASELINE_ID='starter-vanilla-custard-001';
-const BASELINE_CORE_INGREDIENTS=[
+// Shared custard base (dairy, egg, salt) — same across all variants
+const CUSTARD_BASE=[
   {id:'vc01',name:'Heavy cream 35%',nameJa:'純生クリーム 35%',amount:90,unit:'g',category:'dairy'},
   {id:'vc02',name:'Whole milk',nameJa:'牛乳',amount:120,unit:'g',category:'dairy'},
-  {id:'vc03',name:'Granulated sugar',nameJa:'グラニュー糖',amount:45,unit:'g',category:'sweetener'},
-  {id:'vc04',name:'Glucose syrup',nameJa:'水飴',amount:15,unit:'g',category:'sweetener'},
   {id:'vc05',name:'Egg yolks',nameJa:'卵黄',amount:30,unit:'g',category:'egg',isYolk:true},
   {id:'vc06',name:'Salt',nameJa:'塩',amount:1,unit:'pinch',category:'other'},
 ];
@@ -105,8 +104,61 @@ const AGENT_INGREDIENTS={
   cornstarch:{id:'ai-cs2',name:'Cornstarch',nameJa:'コーンスターチ',amount:3,unit:'g',category:'stabilizer',extra:{id:'ai-cs2-m',name:'Cold milk (for slurry)',nameJa:'牛乳（スラリー用）',amount:6,unit:'g',category:'dairy'}},
 };
 
-function resolveBaselineIngredients(prefs){
-  const ings=[...BASELINE_CORE_INGREDIENTS];
+// ── Built-in recipe variant configs ──
+const BUILT_IN_IDS=[BASELINE_ID,'vanilla-keto-001','vanilla-50pct-sugar-001','vanilla-20pct-less-sweet-001'];
+const BUILT_IN_CONFIGS={
+  [BASELINE_ID]:{
+    name:'Classic Vanilla Custard (Baseline)',category:'traditional',
+    sweeteners:[
+      {id:'vc03',name:'Granulated sugar',nameJa:'グラニュー糖',amount:45,unit:'g',category:'sweetener'},
+      {id:'vc04',name:'Glucose syrup',nameJa:'水飴',amount:15,unit:'g',category:'sweetener'},
+    ],
+    sweetHeat:'45g sugar{note}, and 15g glucose syrup',stabLabel:'the 45g sugar',stabId:'vc03',stabName:'sugar',
+    stats:{fatPercent:12,sweetenerPercent:20,totalSolidsPercent:40,estimatedCostYen:480},
+    tags:['vanilla','custard-base','baseline','first-batch','french-style','dana-cree'],
+    source:{type:'book',url:'',bookTitle:'Hello, My Name Is Ice Cream',bookPage:'Vanilla Ice Cream, Custard Base',
+      rawText:'Dana Cree\'s vanilla custard base, scaled to 0.30× for 300ml STI ice cream maker. Vanilla type and texture agent are customizable based on your preferences.'},
+  },
+  'vanilla-keto-001':{
+    name:'Vanilla Custard (Keto)',category:'keto',
+    sweeteners:[
+      {id:'ks01',name:'Allulose',nameJa:'アルロース',amount:40,unit:'g',category:'sweetener'},
+    ],
+    sweetHeat:'40g allulose{note}',stabLabel:'the 40g allulose',stabId:'ks01',stabName:'allulose',
+    stats:{fatPercent:14,sweetenerPercent:13,totalSolidsPercent:35},
+    tags:['vanilla','custard-base','keto','sugar-free','allulose'],
+    source:{type:'custom',url:'',bookTitle:'',bookPage:'',
+      rawText:'Keto adaptation of Dana Cree\'s vanilla custard base. Allulose replaces all sugar and glucose syrup.'},
+  },
+  'vanilla-50pct-sugar-001':{
+    name:'Vanilla Custard (50% Sugar)',category:'experimental',
+    sweeteners:[
+      {id:'hs01',name:'Granulated sugar',nameJa:'グラニュー糖',amount:23,unit:'g',category:'sweetener'},
+      {id:'hs02',name:'Glucose syrup',nameJa:'水飴',amount:8,unit:'g',category:'sweetener'},
+      {id:'hs03',name:'Allulose',nameJa:'アルロース',amount:30,unit:'g',category:'sweetener'},
+    ],
+    sweetHeat:'23g sugar{note}, 8g glucose syrup, and 30g allulose',stabLabel:'the 23g sugar',stabId:'hs01',stabName:'sugar',
+    stats:{fatPercent:12,sweetenerPercent:20,totalSolidsPercent:38},
+    tags:['vanilla','custard-base','reduced-sugar','allulose','50-percent-sugar'],
+    source:{type:'custom',url:'',bookTitle:'',bookPage:'',
+      rawText:'Reduced-sugar adaptation of Dana Cree\'s vanilla custard base. Half the sweetener is traditional (sugar + glucose), half is allulose.'},
+  },
+  'vanilla-20pct-less-sweet-001':{
+    name:'Vanilla Custard (20% Less Sweet)',category:'traditional',
+    sweeteners:[
+      {id:'ls01',name:'Granulated sugar',nameJa:'グラニュー糖',amount:36,unit:'g',category:'sweetener'},
+      {id:'ls02',name:'Glucose syrup',nameJa:'水飴',amount:12,unit:'g',category:'sweetener'},
+    ],
+    sweetHeat:'36g sugar{note}, and 12g glucose syrup',stabLabel:'the 36g sugar',stabId:'ls01',stabName:'sugar',
+    stats:{fatPercent:12,sweetenerPercent:16,totalSolidsPercent:37},
+    tags:['vanilla','custard-base','less-sweet','reduced-sweetener'],
+    source:{type:'custom',url:'',bookTitle:'',bookPage:'',
+      rawText:'20% reduced sweetener adaptation of Dana Cree\'s vanilla custard base.'},
+  },
+};
+
+function resolveVariantIngredients(config,prefs){
+  const ings=[...CUSTARD_BASE,...config.sweeteners];
   const vi=VANILLA_INGREDIENTS[prefs.vanillaPreference||'paste'];
   if(vi) ings.push(vi);
   const ai=AGENT_INGREDIENTS[prefs.textureAgentPreference||'none'];
@@ -114,22 +166,23 @@ function resolveBaselineIngredients(prefs){
   return ings;
 }
 
-function resolveBaselineSteps(prefs){
+function resolveVariantSteps(config,prefs){
   const v=prefs.vanillaPreference||'paste';
   const t=prefs.textureAgentPreference||'none';
   const vanillaHeatText=v==='bean'?'Add your vanilla bean — split lengthwise, scrape seeds into the pot, and drop the pod in too.':v==='paste'?'Stir in 6g vanilla bean paste.':'';
   const vanillaNote=v==='extract'?' Do not add vanilla yet — extract is added after cooking.':'';
-  const sugarNote=t==='commercial_stabilizer'?' The sugar already has your stabilizer mixed in.':'';
+  const sugarNote=t==='commercial_stabilizer'?` The ${config.stabName} already has your stabilizer mixed in.`:'';
+  const sweetHeat=config.sweetHeat.replace('{note}',sugarNote);const sweetIngIds=config.sweeteners.map(s=>s.id);
   const needsInfusion=v==='bean'||v==='paste';
   const steps=[];
   // 1: Ice bath
   steps.push({id:'bs1',order:1,title:'Prepare ice bath',instruction:'Fill a large bowl two-thirds with ice water. Place a smaller metal or glass bowl inside it. Set a fine-mesh strainer (こし器) over the inner bowl. Set aside in fridge.',timerSeconds:null,ingredients:[],condition:null});
   // 2: Stabilizer prep (conditional)
-  if(t==='commercial_stabilizer') steps.push({id:'bs2a',order:2,title:'Prepare stabilizer',instruction:'Mix 1g commercial stabilizer into the 45g sugar, stirring well so it\'s evenly distributed. This will be added to the dairy in the next step.',timerSeconds:null,ingredients:['ai-cs','vc03'],condition:'commercial_stabilizer'});
+  if(t==='commercial_stabilizer') steps.push({id:'bs2a',order:2,title:'Prepare stabilizer',instruction:`Mix 1g commercial stabilizer into ${config.stabLabel}, stirring well so it's evenly distributed. This will be added to the dairy in the next step.`,timerSeconds:null,ingredients:['ai-cs',config.stabId],condition:'commercial_stabilizer'});
   if(t==='tapioca_starch') steps.push({id:'bs2b',order:2,title:'Prepare starch slurry',instruction:'In a small bowl, mix 1.5g tapioca starch with 6g cold milk. Stir until smooth with no lumps. Set aside — you\'ll add this after the custard is cooked.',timerSeconds:null,ingredients:['ai-ts','ai-ts-m'],condition:'tapioca_starch'});
   if(t==='cornstarch') steps.push({id:'bs2c',order:2,title:'Prepare starch slurry',instruction:'In a small bowl, mix 3g cornstarch with 6g cold milk. Stir until smooth with no lumps. Set aside — you\'ll add this to the hot dairy before the eggs.',timerSeconds:null,ingredients:['ai-cs2','ai-cs2-m'],condition:'cornstarch'});
   // 3: Heat dairy
-  steps.push({id:'bs3',order:3,title:'Heat dairy and sugar',instruction:`Combine 90g heavy cream, 120g milk, 45g sugar${sugarNote}, and 15g glucose syrup in a medium saucepan. ${vanillaHeatText}${vanillaNote} Heat over medium, whisking occasionally, until the mixture comes to a gentle boil with small bubbles around the edges. Remove from heat.`,timerSeconds:300,ingredients:['vc01','vc02','vc03','vc04',v!=='extract'?(VANILLA_INGREDIENTS[v]?.id):null].filter(Boolean),condition:null});
+  steps.push({id:'bs3',order:3,title:'Heat dairy and sweetener',instruction:`Combine 90g heavy cream, 120g milk, ${sweetHeat} in a medium saucepan. ${vanillaHeatText}${vanillaNote} Heat over medium, whisking occasionally, until the mixture comes to a gentle boil with small bubbles around the edges. Remove from heat.`,timerSeconds:300,ingredients:['vc01','vc02',...sweetIngIds,v!=='extract'?(VANILLA_INGREDIENTS[v]?.id):null].filter(Boolean),condition:null});
   // 3b: Infuse vanilla (conditional — bean or paste only)
   if(needsInfusion){
     const infuseText=v==='bean'?'Cover the pot and let the vanilla bean steep in the hot dairy for 30 minutes. The longer infusion extracts deeper flavor from the bean. After steeping, remove the pod (you can rinse, dry, and reuse it once more, or make vanilla sugar).':'Cover the pot and let the vanilla paste infuse in the hot dairy for 30 minutes. This resting period lets the flavor develop fully.';
@@ -178,17 +231,39 @@ Recommendation: Try your first batch with NO texture agent to establish a true b
 
 For your KETO version later: Swap the 45g sugar + 15g glucose for ~35-40g allulose. Allulose provides similar freezing point depression. You'll likely want a texture agent too since you're removing sugar solids.`;
 
-function buildBaselineRecipe(prefs){
+const KETO_NOTES=`Keto-friendly version of the baseline vanilla custard. Uses 40g allulose as the sole sweetener, replacing all sugar and glucose syrup.
+
+Allulose provides ~70% of the sweetness of sugar but has nearly zero glycemic impact. It also depresses the freezing point similarly to sugar, keeping ice cream scoopable. However, you lose the browning and body that sugar solids provide — a texture agent is strongly recommended.
+
+Tips:
+• Allulose can crystallize if the ice cream sits too long. Eat within 1-2 weeks for best texture.
+• Allulose may cause digestive discomfort in large quantities — start with small servings.
+• If the result isn't sweet enough, try adding 2-4g more allulose.`;
+
+const HALF_SUGAR_NOTES=`Reduced-sugar version that replaces half the sweetener with allulose. This gives you most of the traditional custard flavor and texture while cutting actual sugar by ~50%.
+
+Formulation: 23g sugar + 8g glucose + 30g allulose (~61g total sweetener). The sugar and glucose provide familiar caramel notes and body; the allulose fills in sweetness and freezing point depression without the glycemic load.
+
+A good middle ground if full keto is too extreme but you want to reduce sugar intake.`;
+
+const LESS_SWEET_NOTES=`A subtly less sweet version of the baseline — all sweeteners reduced by 20%. Good for those who find the baseline too sweet, or who want the vanilla and dairy flavors to come through more prominently.
+
+Formulation: 36g sugar + 12g glucose (down from 45g + 15g). The lower sweetener level will also slightly firm up the ice cream, so consider adding a texture agent if scoopability is important to you.`;
+
+const VARIANT_NOTES={[BASELINE_ID]:BASELINE_NOTES,'vanilla-keto-001':KETO_NOTES,'vanilla-50pct-sugar-001':HALF_SUGAR_NOTES,'vanilla-20pct-less-sweet-001':LESS_SWEET_NOTES};
+
+function buildBuiltInRecipe(id,prefs){
+  const config=BUILT_IN_CONFIGS[id];
+  if(!config) return null;
   return {
-    id:BASELINE_ID,name:'Classic Vanilla Custard (Baseline)',category:'traditional',
-    source:{type:'book',url:'',bookTitle:'Hello, My Name Is Ice Cream',bookPage:'Vanilla Ice Cream, Custard Base',
-      rawText:'Dana Cree\'s vanilla custard base, scaled to 0.30× for 300ml STI ice cream maker. Vanilla type and texture agent are customizable based on your preferences.'},
+    id,name:config.name,category:config.category,
+    source:config.source,
     servings:300,
-    ingredients:resolveBaselineIngredients(prefs),
-    calculatedStats:{fatPercent:12,sweetenerPercent:20,totalSolidsPercent:40,estimatedCostYen:480},
-    steps:resolveBaselineSteps(prefs),
-    notes:BASELINE_NOTES,
-    tags:['vanilla','custard-base','baseline','first-batch','french-style','dana-cree'],
+    ingredients:resolveVariantIngredients(config,prefs),
+    calculatedStats:config.stats,
+    steps:resolveVariantSteps(config,prefs),
+    notes:VARIANT_NOTES[id]||'',
+    tags:config.tags,
     isBaseline:true,
     createdAt:'2026-02-08T00:00:00Z',updatedAt:new Date().toISOString()
   };
@@ -212,16 +287,21 @@ function usePreferences(){
 function useRecipes(prefs){
   const[recipes,setRecipes]=useState(()=>{
     const stored=S.get('icl-recipes');
+    const defaultPrefs=prefs||{vanillaPreference:'paste',textureAgentPreference:'none',defaultBatchSize:300};
     if(stored){
-      // Update baseline recipe in-place if prefs changed
-      if(prefs) return stored.map(r=>r.id===BASELINE_ID?buildBaselineRecipe(prefs):r);
-      return stored;
+      // Update all built-in recipes in-place if prefs changed
+      let updated=prefs?stored.map(r=>BUILT_IN_CONFIGS[r.id]?buildBuiltInRecipe(r.id,prefs):r):stored;
+      // Add any new built-in recipes that existing users don't have yet
+      const existingIds=new Set(updated.map(r=>r.id));
+      const missing=BUILT_IN_IDS.filter(id=>!existingIds.has(id));
+      if(missing.length) updated=[...updated,...missing.map(id=>buildBuiltInRecipe(id,defaultPrefs))];
+      return updated;
     }
-    return [buildBaselineRecipe(prefs||{vanillaPreference:'paste',textureAgentPreference:'none',defaultBatchSize:300})];
+    return BUILT_IN_IDS.map(id=>buildBuiltInRecipe(id,defaultPrefs));
   });
-  // Re-resolve baseline when prefs change
+  // Re-resolve all built-in recipes when prefs change
   useEffect(()=>{
-    if(prefs) setRecipes(p=>p.map(r=>r.id===BASELINE_ID?{...buildBaselineRecipe(prefs),createdAt:r.createdAt}:r));
+    if(prefs) setRecipes(p=>p.map(r=>BUILT_IN_CONFIGS[r.id]?{...buildBuiltInRecipe(r.id,prefs),createdAt:r.createdAt}:r));
   },[prefs?.vanillaPreference,prefs?.textureAgentPreference]);
   useEffect(()=>S.set('icl-recipes',recipes),[recipes]);
   return{
