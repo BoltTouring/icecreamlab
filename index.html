@@ -105,7 +105,7 @@ const AGENT_INGREDIENTS={
 };
 
 // ── Built-in recipe variant configs ──
-const BUILT_IN_IDS=[BASELINE_ID,'vanilla-keto-001','vanilla-50pct-sugar-001','vanilla-20pct-less-sweet-001'];
+const BUILT_IN_IDS=[BASELINE_ID,'vanilla-keto-001','vanilla-50pct-sugar-001','vanilla-20pct-less-sweet-001','oreo-50pct-sugar-001'];
 const BUILT_IN_CONFIGS={
   [BASELINE_ID]:{
     name:'Classic Vanilla Custard (Baseline)',category:'traditional',
@@ -155,25 +155,46 @@ const BUILT_IN_CONFIGS={
     source:{type:'custom',url:'',bookTitle:'',bookPage:'',
       rawText:'20% reduced sweetener adaptation of Dana Cree\'s vanilla custard base.'},
   },
+  'oreo-50pct-sugar-001':{
+    name:'Oreo (50% Sugar)',category:'experimental',
+    sweeteners:[
+      {id:'or01',name:'Granulated sugar',nameJa:'グラニュー糖',amount:18,unit:'g',category:'sweetener'},
+      {id:'or02',name:'Glucose syrup',nameJa:'水飴',amount:6,unit:'g',category:'sweetener'},
+      {id:'or03',name:'Allulose',nameJa:'アルロース',amount:18,unit:'g',category:'sweetener'},
+    ],
+    sweetHeat:'18g sugar{note}, 6g glucose syrup, and 18g allulose',stabLabel:'the 18g sugar',stabId:'or01',stabName:'sugar',
+    mixIns:[
+      {ingredient:{id:'or-oreo',name:'Crushed Oreos',nameJa:'オレオ（砕いたもの）',amount:'40–50',unit:'g',category:'other'},
+       instruction:'In the last 5 minutes of churning, add 40–50g of roughly crushed Oreos. Fold them in so they stay chunky and don\'t fully dissolve into the base.'}
+    ],
+    stats:{fatPercent:11,sweetenerPercent:14,totalSolidsPercent:40},
+    tags:['oreo','cookies-and-cream','50-percent-sugar','allulose','mix-in'],
+    source:{type:'custom',url:'',bookTitle:'',bookPage:'',
+      rawText:'Oreo cookies & cream custard base with 50% sugar reduction via allulose. Vanilla bean paste added after cooling. Oreos folded in during last 5 minutes of churning.'},
+  },
 };
 
 function resolveVariantIngredients(config,prefs){
   const ings=[...CUSTARD_BASE,...config.sweeteners];
-  const vi=VANILLA_INGREDIENTS[prefs.vanillaPreference||'paste'];
-  if(vi) ings.push(vi);
+  if(config.fixedVanilla){ings.push(config.fixedVanilla.ingredient)}
+  else{const vi=VANILLA_INGREDIENTS[prefs.vanillaPreference||'paste'];if(vi) ings.push(vi)}
+  if(config.mixIns) config.mixIns.forEach(m=>ings.push(m.ingredient));
   const ai=AGENT_INGREDIENTS[prefs.textureAgentPreference||'none'];
   if(ai){ings.push(ai);if(ai.extra)ings.push(ai.extra);}
   return ings;
 }
 
 function resolveVariantSteps(config,prefs){
-  const v=prefs.vanillaPreference||'paste';
+  const hasFixedV=!!config.fixedVanilla;
+  const v=hasFixedV?null:(prefs.vanillaPreference||'paste');
+  const vanillaTiming=hasFixedV?config.fixedVanilla.timing:(v==='extract'?'post-cook':'heat');
   const t=prefs.textureAgentPreference||'none';
-  const vanillaHeatText=v==='bean'?'Add your vanilla bean — split lengthwise, scrape seeds into the pot, and drop the pod in too.':v==='paste'?'Stir in 6g vanilla bean paste.':'';
-  const vanillaNote=v==='extract'?' Do not add vanilla yet — extract is added after cooking.':'';
+  const vanillaHeatText=vanillaTiming==='heat'?(v==='bean'?'Add your vanilla bean — split lengthwise, scrape seeds into the pot, and drop the pod in too.':v==='paste'?'Stir in 6g vanilla bean paste.':''):'';
+  const vanillaNote=vanillaTiming!=='heat'?' Do not add vanilla yet — it will be added later.':'';
   const sugarNote=t==='commercial_stabilizer'?` The ${config.stabName} already has your stabilizer mixed in.`:'';
   const sweetHeat=config.sweetHeat.replace('{note}',sugarNote);const sweetIngIds=config.sweeteners.map(s=>s.id);
-  const needsInfusion=v==='bean'||v==='paste';
+  const vanillaIngId=hasFixedV?config.fixedVanilla.ingredient.id:(VANILLA_INGREDIENTS[v]?.id||null);
+  const needsInfusion=vanillaTiming==='heat'&&(v==='bean'||v==='paste');
   const steps=[];
   // 1: Ice bath
   steps.push({id:'bs1',order:1,title:'Prepare ice bath',instruction:'Fill a large bowl two-thirds with ice water. Place a smaller metal or glass bowl inside it. Set a fine-mesh strainer (こし器) over the inner bowl. Set aside in fridge.',timerSeconds:null,ingredients:[],condition:null});
@@ -182,7 +203,7 @@ function resolveVariantSteps(config,prefs){
   if(t==='tapioca_starch') steps.push({id:'bs2b',order:2,title:'Prepare starch slurry',instruction:'In a small bowl, mix 1.5g tapioca starch with 6g cold milk. Stir until smooth with no lumps. Set aside — you\'ll add this after the custard is cooked.',timerSeconds:null,ingredients:['ai-ts','ai-ts-m'],condition:'tapioca_starch'});
   if(t==='cornstarch') steps.push({id:'bs2c',order:2,title:'Prepare starch slurry',instruction:'In a small bowl, mix 3g cornstarch with 6g cold milk. Stir until smooth with no lumps. Set aside — you\'ll add this to the hot dairy before the eggs.',timerSeconds:null,ingredients:['ai-cs2','ai-cs2-m'],condition:'cornstarch'});
   // 3: Heat dairy
-  steps.push({id:'bs3',order:3,title:'Heat dairy and sweetener',instruction:`Combine 90g heavy cream, 120g milk, ${sweetHeat} in a medium saucepan. ${vanillaHeatText}${vanillaNote} Heat over medium, whisking occasionally, until the mixture comes to a gentle boil with small bubbles around the edges. Remove from heat.`,timerSeconds:300,ingredients:['vc01','vc02',...sweetIngIds,v!=='extract'?(VANILLA_INGREDIENTS[v]?.id):null].filter(Boolean),condition:null});
+  steps.push({id:'bs3',order:3,title:'Heat dairy and sweetener',instruction:`Combine 90g heavy cream, 120g milk, ${sweetHeat} in a medium saucepan. ${vanillaHeatText}${vanillaNote} Heat over medium, whisking occasionally, until the mixture comes to a gentle boil with small bubbles around the edges. Remove from heat.`,timerSeconds:300,ingredients:['vc01','vc02',...sweetIngIds,vanillaTiming==='heat'?vanillaIngId:null].filter(Boolean),condition:null});
   // 3b: Infuse vanilla (conditional — bean or paste only)
   if(needsInfusion){
     const infuseText=v==='bean'?'Cover the pot and let the vanilla bean steep in the hot dairy for 30 minutes. The longer infusion extracts deeper flavor from the bean. After steeping, remove the pod (you can rinse, dry, and reuse it once more, or make vanilla sugar).':'Cover the pot and let the vanilla paste infuse in the hot dairy for 30 minutes. This resting period lets the flavor develop fully.';
@@ -199,9 +220,11 @@ function resolveVariantSteps(config,prefs){
   // 8: Tapioca starch (conditional)
   if(t==='tapioca_starch') steps.push({id:'bs8a',order:8,title:'Add tapioca starch',instruction:'Remove the custard from heat. Immediately whisk in the tapioca starch slurry. Stir well until fully incorporated.',timerSeconds:null,ingredients:['ai-ts','ai-ts-m'],condition:'tapioca_starch'});
   // 8 alt: Vanilla extract (conditional)
-  if(v==='extract') steps.push({id:'bs8b',order:8,title:'Add vanilla extract',instruction:'Stir in 6g vanilla extract now. Extract is added after cooking because heat destroys its delicate flavor compounds.',timerSeconds:null,ingredients:['vi-extract'],condition:'extract'});
+  if(vanillaTiming==='post-cook') steps.push({id:'bs8b',order:8,title:'Add vanilla extract',instruction:'Stir in 6g vanilla extract now. Extract is added after cooking because heat destroys its delicate flavor compounds.',timerSeconds:null,ingredients:['vi-extract'],condition:'extract'});
   // 9: Strain and cool
   steps.push({id:'bs9',order:9,title:'Strain and cool',instruction:`Immediately pour the custard through the fine-mesh strainer into the bowl sitting in the ice bath. Stir occasionally until custard is cool to the touch (below 10°C).`,timerSeconds:600,ingredients:[],condition:null});
+  // 9b: Add vanilla after cooling (for recipes that specify post-cool timing)
+  if(vanillaTiming==='post-cool'&&config.fixedVanilla){const fv=config.fixedVanilla.ingredient;steps.push({id:'bs9b',order:9,title:`Add ${fv.name.toLowerCase()}`,instruction:`Stir ${fv.amount}${fv.unit} ${fv.name.toLowerCase()} into the cooled custard. Adding it after cooling preserves the delicate flavor.`,timerSeconds:null,ingredients:[fv.id],condition:null})}
   // 10: Gum stabilizer (conditional)
   if(t==='guar_gum'||t==='xanthan_gum'){
     const gumName=t==='guar_gum'?'guar gum':'xanthan gum';
@@ -211,7 +234,8 @@ function resolveVariantSteps(config,prefs){
   // 11: Cure
   steps.push({id:'bs11',order:11,title:'Cure overnight',instruction:'Cover the custard with plastic wrap pressed directly onto the surface (to prevent a skin). Refrigerate at 4°C for at least 4 hours, preferably overnight (8-12 hours). This \'aging\' step (エージング) lets fat crystallize, proteins hydrate, and flavors deepen. Your ice cream will be noticeably smoother and creamier.',timerSeconds:null,ingredients:[],condition:null});
   // 12: Churn
-  steps.push({id:'bs12',order:12,title:'Churn',instruction:'Give the chilled custard a stir. Pour into your ice cream maker (STI 300ml). Churn according to machine instructions until it reaches soft-serve consistency — thick, creamy, and holding its shape. Typically 20-30 minutes.',timerSeconds:1500,ingredients:[],condition:null});
+  if(config.mixIns?.length){const mixInText=config.mixIns.map(m=>m.instruction).join(' ');const mixInIngIds=config.mixIns.map(m=>m.ingredient.id);steps.push({id:'bs12',order:12,title:'Churn & add mix-ins',instruction:`Give the chilled custard a stir. Pour into your ice cream maker (STI 300ml). Churn according to machine instructions until it reaches soft-serve consistency — thick, creamy, and holding its shape. Typically 20-30 minutes. ${mixInText}`,timerSeconds:1500,ingredients:mixInIngIds,condition:null})}
+  else steps.push({id:'bs12',order:12,title:'Churn',instruction:'Give the chilled custard a stir. Pour into your ice cream maker (STI 300ml). Churn according to machine instructions until it reaches soft-serve consistency — thick, creamy, and holding its shape. Typically 20-30 minutes.',timerSeconds:1500,ingredients:[],condition:null});
   // 13: Harden
   steps.push({id:'bs13',order:13,title:'Harden',instruction:'Transfer churned ice cream to an airtight container. Press plastic wrap directly onto the surface to prevent ice crystals. Freeze for at least 3-4 hours until firm. Let sit at room temperature for 5-10 minutes before scooping.',timerSeconds:null,ingredients:[],condition:null});
   return steps.map((s,i)=>({...s,order:i+1}));
@@ -250,7 +274,16 @@ const LESS_SWEET_NOTES=`A subtly less sweet version of the baseline — all swee
 
 Formulation: 36g sugar + 12g glucose (down from 45g + 15g). The lower sweetener level will also slightly firm up the ice cream, so consider adding a texture agent if scoopability is important to you.`;
 
-const VARIANT_NOTES={[BASELINE_ID]:BASELINE_NOTES,'vanilla-keto-001':KETO_NOTES,'vanilla-50pct-sugar-001':HALF_SUGAR_NOTES,'vanilla-20pct-less-sweet-001':LESS_SWEET_NOTES};
+const OREO_NOTES=`Cookies & cream custard base with 50% sugar reduction via allulose. Sweetener split: 18g sugar + 6g glucose + 18g allulose. The lower sweetener total (vs baseline) accounts for the sugar in the Oreos themselves.
+
+Oreos are folded in during the last 5 minutes of churning so they stay chunky. Crush them roughly — you want a mix of small bits and larger pieces. About 4-5 Oreos (40-50g) is the right amount for 300ml.
+
+Tips:
+• Don't crush too fine — powdered Oreos turn the base gray. Chunky is better.
+• If you want more intense Oreo flavor, scrape out the cream filling and stir it into the custard before churning, then fold in just the cookie pieces.
+• The Oreo pieces soften in the ice cream over time — best eaten within a week.`;
+
+const VARIANT_NOTES={[BASELINE_ID]:BASELINE_NOTES,'vanilla-keto-001':KETO_NOTES,'vanilla-50pct-sugar-001':HALF_SUGAR_NOTES,'vanilla-20pct-less-sweet-001':LESS_SWEET_NOTES,'oreo-50pct-sugar-001':OREO_NOTES};
 
 function buildBuiltInRecipe(id,prefs){
   const config=BUILT_IN_CONFIGS[id];
