@@ -105,7 +105,7 @@ const AGENT_INGREDIENTS={
 };
 
 // ── Built-in recipe variant configs ──
-const BUILT_IN_IDS=[BASELINE_ID,'vanilla-keto-001','vanilla-50pct-sugar-001','vanilla-20pct-less-sweet-001','oreo-50pct-sugar-001'];
+const BUILT_IN_IDS=[BASELINE_ID,'vanilla-keto-001','vanilla-50pct-sugar-001','vanilla-20pct-less-sweet-001','oreo-50pct-sugar-001','allulose-vanilla-001','allulose-strawberry-001'];
 const BUILT_IN_CONFIGS={
   [BASELINE_ID]:{
     name:'Classic Vanilla Custard (Baseline)',category:'traditional',
@@ -171,6 +171,61 @@ const BUILT_IN_CONFIGS={
     tags:['oreo','cookies-and-cream','50-percent-sugar','allulose','mix-in'],
     source:{type:'custom',url:'',bookTitle:'',bookPage:'',
       rawText:'Oreo cookies & cream custard base with 50% sugar reduction via allulose. Vanilla bean paste added after cooling. Oreos folded in during last 5 minutes of churning.'},
+  },
+  'allulose-vanilla-001':{
+    name:'Full Allulose Vanilla',category:'keto',
+    customIngredients:[
+      {id:'av01',name:'Heavy cream 35%',nameJa:'純生クリーム 35%（タカナシ）',amount:90,unit:'g',category:'dairy'},
+      {id:'av02',name:'Whole milk',nameJa:'牛乳',amount:120,unit:'g',category:'dairy'},
+      {id:'av03',name:'Egg yolks',nameJa:'卵黄',amount:30,unit:'g',category:'egg',isYolk:true},
+      {id:'av04',name:'Allulose',nameJa:'アルロース',amount:45,unit:'g',category:'sweetener'},
+      {id:'av05',name:'Vanilla bean paste',nameJa:'バニラビーンズペースト',amount:2,unit:'g',category:'flavor'},
+      {id:'av06',name:'Salt',nameJa:'塩',amount:1,unit:'g',category:'other'},
+    ],
+    customSteps:[
+      {id:'av-s1',order:1,title:'Whisk yolks and allulose',instruction:'Whisk egg yolks and 45g allulose in a bowl until smooth.',timerSeconds:null,ingredients:['av03','av04'],condition:null},
+      {id:'av-s2',order:2,title:'Heat dairy',instruction:'Heat 90g cream, 120g milk, and 1g salt in a saucepan to steaming (~70°C). Do not boil.',timerSeconds:300,ingredients:['av01','av02','av06'],condition:null},
+      {id:'av-s3',order:3,title:'Temper the eggs',instruction:'Slowly pour the hot dairy into the yolk mixture while whisking constantly to temper.',timerSeconds:null,ingredients:[],condition:null},
+      {id:'av-s4',order:4,title:'Cook the custard',instruction:'Return everything to the saucepan. Cook on medium-low, stirring constantly, until 80–85°C.',timerSeconds:480,ingredients:[],condition:null},
+      {id:'av-s5',order:5,title:'Strain and cool',instruction:'Strain through fine mesh into a bowl set over an ice bath. Stir occasionally until cool.',timerSeconds:600,ingredients:[],condition:null},
+      {id:'av-s6',order:6,title:'Add vanilla',instruction:'Stir in 2g vanilla bean paste once custard is cool.',timerSeconds:null,ingredients:['av05'],condition:null},
+      {id:'av-s7',order:7,title:'Cure overnight',instruction:'Press plastic wrap directly onto the surface. Refrigerate overnight (minimum 4 hours).',timerSeconds:null,ingredients:[],condition:null},
+      {id:'av-s8',order:8,title:'Churn and harden',instruction:'Churn per machine instructions (~20–30 minutes). Transfer to container, press plastic wrap on surface, harden 3–4 hours.',timerSeconds:1500,ingredients:[],condition:null},
+    ],
+    stats:{fatPercent:14,sweetenerPercent:15,totalSolidsPercent:35},
+    tags:['vanilla','allulose','keto','sugar-free','full-allulose','yolks-first'],
+    source:{type:'custom',url:'',bookTitle:'',bookPage:'',
+      rawText:'Full allulose vanilla custard. Yolks-first method with vanilla paste added after cooling.'},
+  },
+  'allulose-strawberry-001':{
+    name:'Full Allulose Strawberry',category:'keto',
+    customIngredients:[
+      {id:'as01',name:'Heavy cream 35%',nameJa:'純生クリーム 35%（タカナシ）',amount:90,unit:'g',category:'dairy'},
+      {id:'as02',name:'Whole milk',nameJa:'牛乳',amount:90,unit:'g',category:'dairy'},
+      {id:'as03',name:'Egg yolks',nameJa:'卵黄',amount:30,unit:'g',category:'egg',isYolk:true},
+      {id:'as04',name:'Allulose (custard)',nameJa:'アルロース（カスタード用）',amount:35,unit:'g',category:'sweetener'},
+      {id:'as05',name:'Allulose (berries)',nameJa:'アルロース（ベリー用）',amount:10,unit:'g',category:'sweetener'},
+      {id:'as06',name:'Fresh strawberries',nameJa:'いちご',amount:120,unit:'g',category:'other'},
+      {id:'as07',name:'Salt',nameJa:'塩',amount:1,unit:'g',category:'other'},
+    ],
+    customSteps:[
+      {id:'as-s1',order:1,title:'Prep strawberries',instruction:'Hull and quarter 120g fresh strawberries.',timerSeconds:null,ingredients:['as06'],condition:null},
+      {id:'as-s2',order:2,title:'Macerate berries',instruction:'Toss strawberries with 10g allulose in a small saucepan. Let macerate 20–30 minutes until juicy.',timerSeconds:1200,ingredients:['as05'],condition:null},
+      {id:'as-s3',order:3,title:'Cook down berries',instruction:'Cook over medium heat, stirring occasionally, until reduced by roughly half (~8–10 min). You want a thick, jammy consistency — not watery.',timerSeconds:600,ingredients:[],condition:null},
+      {id:'as-s4',order:4,title:'Puree and strain',instruction:'Mash or blend to a smooth puree. Strain out seeds through fine mesh. You should end up with ~50–60g concentrated puree. Cool completely before using.',timerSeconds:null,ingredients:[],condition:null},
+      {id:'as-s5',order:5,title:'Whisk yolks and allulose',instruction:'Whisk egg yolks and 35g allulose in a bowl until smooth.',timerSeconds:null,ingredients:['as03','as04'],condition:null},
+      {id:'as-s6',order:6,title:'Heat dairy',instruction:'Heat 90g cream, 90g milk, and 1g salt in a saucepan to steaming (~70°C). Do not boil.',timerSeconds:300,ingredients:['as01','as02','as07'],condition:null},
+      {id:'as-s7',order:7,title:'Temper the eggs',instruction:'Slowly pour the hot dairy into the yolk mixture while whisking constantly to temper.',timerSeconds:null,ingredients:[],condition:null},
+      {id:'as-s8',order:8,title:'Cook the custard',instruction:'Return everything to the saucepan. Cook on medium-low, stirring constantly, until 80–85°C.',timerSeconds:480,ingredients:[],condition:null},
+      {id:'as-s9',order:9,title:'Strain and cool',instruction:'Strain through fine mesh into a bowl set over an ice bath. Stir occasionally until cool.',timerSeconds:600,ingredients:[],condition:null},
+      {id:'as-s10',order:10,title:'Add strawberry puree',instruction:'Once cooled, fold in the strawberry puree and stir until evenly combined.',timerSeconds:null,ingredients:[],condition:null},
+      {id:'as-s11',order:11,title:'Cure overnight',instruction:'Press plastic wrap directly onto the surface. Refrigerate overnight (minimum 4 hours).',timerSeconds:null,ingredients:[],condition:null},
+      {id:'as-s12',order:12,title:'Churn and harden',instruction:'Churn per machine instructions (~20–30 minutes). Transfer to container, press plastic wrap on surface, harden 3–4 hours.',timerSeconds:1500,ingredients:[],condition:null},
+    ],
+    stats:{fatPercent:11,sweetenerPercent:12,totalSolidsPercent:33},
+    tags:['strawberry','allulose','keto','sugar-free','fruit','full-allulose','yolks-first'],
+    source:{type:'custom',url:'',bookTitle:'',bookPage:'',
+      rawText:'Full allulose strawberry custard. Strawberries cooked down to concentrated puree, folded into cooled custard. Milk reduced to 90g to compensate for puree water content.'},
   },
 };
 
@@ -283,7 +338,23 @@ Tips:
 • If you want more intense Oreo flavor, scrape out the cream filling and stir it into the custard before churning, then fold in just the cookie pieces.
 • The Oreo pieces soften in the ice cream over time — best eaten within a week.`;
 
-const VARIANT_NOTES={[BASELINE_ID]:BASELINE_NOTES,'vanilla-keto-001':KETO_NOTES,'vanilla-50pct-sugar-001':HALF_SUGAR_NOTES,'vanilla-20pct-less-sweet-001':LESS_SWEET_NOTES,'oreo-50pct-sugar-001':OREO_NOTES};
+const ALLULOSE_VANILLA_NOTES=`Full allulose vanilla custard using the yolks-first method. 45g allulose as sole sweetener (~equivalent to 30–32g sugar in perceived sweetness). Vanilla bean paste (2g) added after cooling to preserve flavor.
+
+Key differences from baseline process: yolks and allulose are whisked together first, dairy heated to only ~70°C (steaming, not boiling), vanilla added post-cool.
+
+No stabilizer — Round 1 showed best results without stabilizer at this batch size. Revisit if texture is an issue at larger scale.
+
+Allulose has ~2× the freezing point depression of sugar, so expect softer texture than sugar-based batches. If too soft after hardening, reduce allulose by 5g next time.`;
+
+const ALLULOSE_STRAWBERRY_NOTES=`Full allulose strawberry custard. The strawberry prep is the key step — raw strawberries are ~90% water, so cooking them down to a concentrated puree (~50–60g from 120g) is essential for intense flavor without making the ice cream icy or too soft.
+
+Allulose is split: 35g in the custard + 10g for macerating the berries. Milk reduced to 90g (from 120g in vanilla version) to compensate for the water content in the strawberry puree.
+
+No stabilizer — same reasoning as the vanilla batch. The strawberry puree adds some body on its own.
+
+If too soft after hardening, reduce allulose by 5g from the custard portion. If strawberry flavor is too subtle, use 150g berries next time and cook down further.`;
+
+const VARIANT_NOTES={[BASELINE_ID]:BASELINE_NOTES,'vanilla-keto-001':KETO_NOTES,'vanilla-50pct-sugar-001':HALF_SUGAR_NOTES,'vanilla-20pct-less-sweet-001':LESS_SWEET_NOTES,'oreo-50pct-sugar-001':OREO_NOTES,'allulose-vanilla-001':ALLULOSE_VANILLA_NOTES,'allulose-strawberry-001':ALLULOSE_STRAWBERRY_NOTES};
 
 function buildBuiltInRecipe(id,prefs){
   const config=BUILT_IN_CONFIGS[id];
@@ -292,9 +363,9 @@ function buildBuiltInRecipe(id,prefs){
     id,name:config.name,category:config.category,
     source:config.source,
     servings:300,
-    ingredients:resolveVariantIngredients(config,prefs),
+    ingredients:config.customIngredients||resolveVariantIngredients(config,prefs),
     calculatedStats:config.stats,
-    steps:resolveVariantSteps(config,prefs),
+    steps:config.customSteps||resolveVariantSteps(config,prefs),
     notes:VARIANT_NOTES[id]||'',
     tags:config.tags,
     isBaseline:true,
