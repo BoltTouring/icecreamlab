@@ -105,7 +105,7 @@ const AGENT_INGREDIENTS={
 };
 
 // ── Built-in recipe variant configs ──
-const BUILT_IN_IDS=[BASELINE_ID,'vanilla-keto-001','vanilla-50pct-sugar-001','vanilla-20pct-less-sweet-001','oreo-50pct-sugar-001','allulose-vanilla-001','allulose-strawberry-001'];
+const BUILT_IN_IDS=[BASELINE_ID,'vanilla-keto-001','vanilla-50pct-sugar-001','vanilla-20pct-less-sweet-001','oreo-50pct-sugar-001','allulose-vanilla-001','allulose-strawberry-001','caramelized-banana-001'];
 const BUILT_IN_CONFIGS={
   [BASELINE_ID]:{
     name:'Classic Vanilla Custard (Baseline)',category:'traditional',
@@ -226,6 +226,37 @@ const BUILT_IN_CONFIGS={
     tags:['strawberry','allulose','keto','sugar-free','fruit','full-allulose','yolks-first'],
     source:{type:'custom',url:'',bookTitle:'',bookPage:'',
       rawText:'Full allulose strawberry custard. Strawberries cooked down to concentrated puree, folded into cooled custard. Milk reduced to 90g to compensate for puree water content.'},
+  },
+  'caramelized-banana-001':{
+    name:'Caramelized Banana (Mixed Sweetener)',category:'experimental',
+    customIngredients:[
+      {id:'cb01',name:'Heavy cream 35%',nameJa:'純生クリーム 35%',amount:90,unit:'g',category:'dairy'},
+      {id:'cb02',name:'Whole milk',nameJa:'牛乳',amount:120,unit:'g',category:'dairy'},
+      {id:'cb03',name:'Egg yolks',nameJa:'卵黄',amount:30,unit:'g',category:'egg',isYolk:true},
+      {id:'cb04',name:'Granulated sugar',nameJa:'グラニュー糖',amount:15,unit:'g',category:'sweetener'},
+      {id:'cb05',name:'Glucose syrup',nameJa:'水飴',amount:5,unit:'g',category:'sweetener'},
+      {id:'cb06',name:'Allulose',nameJa:'アルロース',amount:15,unit:'g',category:'sweetener'},
+      {id:'cb07',name:'Vanilla bean paste',nameJa:'バニラビーンズペースト',amount:3,unit:'g',category:'flavor'},
+      {id:'cb08',name:'Ripe banana',nameJa:'完熟バナナ',amount:130,unit:'g',category:'other'},
+      {id:'cb09',name:'Unsalted butter',nameJa:'無塩バター',amount:5,unit:'g',category:'other'},
+      {id:'cb10',name:'Salt',nameJa:'塩',amount:1,unit:'pinch',category:'other'},
+    ],
+    customSteps:[
+      {id:'cb-s1',order:1,title:'Caramelize banana',instruction:'Slice 130g ripe banana into rounds. Melt 5g butter in a pan over medium heat. Cook banana slices until golden brown on both sides, about 3–4 minutes. Mash into a smooth paste and set aside to cool.',timerSeconds:240,ingredients:['cb08','cb09'],condition:null},
+      {id:'cb-s2',order:2,title:'Prepare ice bath',instruction:'Fill a large bowl two-thirds with ice water. Place a smaller metal or glass bowl inside it. Set a fine-mesh strainer over the inner bowl. Set aside.',timerSeconds:null,ingredients:[],condition:null},
+      {id:'cb-s3',order:3,title:'Heat dairy and sweeteners',instruction:'Combine 90g cream, 120g milk, 15g sugar, 5g glucose syrup, 15g allulose, and a pinch of salt in a saucepan. Heat over medium, whisking occasionally, until sweeteners dissolve and mixture reaches a gentle simmer.',timerSeconds:300,ingredients:['cb01','cb02','cb04','cb05','cb06','cb10'],condition:null},
+      {id:'cb-s4',order:4,title:'Whisk egg yolks',instruction:'In a medium bowl, whisk 30g egg yolks until smooth.',timerSeconds:null,ingredients:['cb03'],condition:null},
+      {id:'cb-s5',order:5,title:'Temper the eggs',instruction:'Slowly pour about half a cup of the hot dairy into the yolks while whisking constantly. Then pour the tempered yolks back into the pot while whisking.',timerSeconds:null,ingredients:[],condition:null},
+      {id:'cb-s6',order:6,title:'Cook the custard',instruction:'Cook on medium-low, stirring constantly with a spatula, until the custard coats the back of the spatula or reaches 80–85°C. Do not boil.',timerSeconds:480,ingredients:[],condition:null},
+      {id:'cb-s7',order:7,title:'Strain and cool',instruction:'Strain through fine mesh into the ice bath bowl. Stir occasionally until cool.',timerSeconds:600,ingredients:[],condition:null},
+      {id:'cb-s8',order:8,title:'Add vanilla and banana',instruction:'Stir in 3g vanilla bean paste and the caramelized banana paste until evenly combined.',timerSeconds:null,ingredients:['cb07'],condition:null},
+      {id:'cb-s9',order:9,title:'Cure overnight',instruction:'Press plastic wrap directly onto the surface. Refrigerate overnight at 4°C (minimum 4 hours).',timerSeconds:null,ingredients:[],condition:null},
+      {id:'cb-s10',order:10,title:'Churn',instruction:'Churn on soft (柔らかめ) setting, about 20–30 minutes. Transfer to container, press plastic wrap on surface, harden 3–4 hours.',timerSeconds:1500,ingredients:[],condition:null},
+    ],
+    stats:{fatPercent:12,sweetenerPercent:12,totalSolidsPercent:38},
+    tags:['banana','caramelized','mixed-sweetener','allulose','experimental','50-50-sweetener'],
+    source:{type:'custom',url:'',bookTitle:'',bookPage:'',
+      rawText:'Caramelized banana custard with 50/50 mixed sweetener (15g sugar + 5g glucose / 15g allulose). Bananas add ~15–18g natural sugar. No stabilizer. Testing whether mixed sweetener fixes blandness from full allulose while banana pectin helps texture.'},
   },
 };
 
@@ -354,7 +385,17 @@ No stabilizer — same reasoning as the vanilla batch. The strawberry puree adds
 
 If too soft after hardening, reduce allulose by 5g from the custard portion. If strawberry flavor is too subtle, use 150g berries next time and cook down further.`;
 
-const VARIANT_NOTES={[BASELINE_ID]:BASELINE_NOTES,'vanilla-keto-001':KETO_NOTES,'vanilla-50pct-sugar-001':HALF_SUGAR_NOTES,'vanilla-20pct-less-sweet-001':LESS_SWEET_NOTES,'oreo-50pct-sugar-001':OREO_NOTES,'allulose-vanilla-001':ALLULOSE_VANILLA_NOTES,'allulose-strawberry-001':ALLULOSE_STRAWBERRY_NOTES};
+const CARAMELIZED_BANANA_NOTES=`Caramelized banana with a 50/50 mixed sweetener approach. Total sweetener from base: 35g (15g sugar + 5g glucose + 15g allulose). Bananas add ~15–18g natural sugar, bringing effective total to ~50–53g — similar sweetness territory to Batch 2a (48g total) which was the best so far.
+
+Sugar and glucose kept in for body, texture, and creaminess that full allulose lacked. This tests whether the mixed sweetener fixes the blandness from Batch 3's full allulose.
+
+No stabilizer. Banana's natural pectin and body may help with creaminess and reduce iciness.
+
+Caramelize the banana well — you want golden brown on both sides for depth of flavor. The Maillard reaction adds richness that raw banana can't. Mash into a smooth paste; any chunks will create icy spots.
+
+Vanilla bean paste bumped to 3g (up from 2g in Batch 3) for more presence.`;
+
+const VARIANT_NOTES={[BASELINE_ID]:BASELINE_NOTES,'vanilla-keto-001':KETO_NOTES,'vanilla-50pct-sugar-001':HALF_SUGAR_NOTES,'vanilla-20pct-less-sweet-001':LESS_SWEET_NOTES,'oreo-50pct-sugar-001':OREO_NOTES,'allulose-vanilla-001':ALLULOSE_VANILLA_NOTES,'allulose-strawberry-001':ALLULOSE_STRAWBERRY_NOTES,'caramelized-banana-001':CARAMELIZED_BANANA_NOTES};
 
 function buildBuiltInRecipe(id,prefs){
   const config=BUILT_IN_CONFIGS[id];
