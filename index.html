@@ -125,7 +125,7 @@ const AGENT_INGREDIENTS={
 };
 
 // ── Built-in recipe variant configs ──
-const BUILT_IN_IDS=[BASELINE_ID,'vanilla-keto-001','vanilla-50pct-sugar-001','vanilla-20pct-less-sweet-001','oreo-50pct-sugar-001','allulose-vanilla-001','allulose-strawberry-001','caramelized-banana-001'];
+const BUILT_IN_IDS=[BASELINE_ID,'vanilla-keto-001','vanilla-50pct-sugar-001','vanilla-20pct-less-sweet-001','oreo-50pct-sugar-001','allulose-vanilla-001','allulose-strawberry-001','strawberry-mixed-sweetener-001','caramelized-banana-001'];
 const BUILT_IN_CONFIGS={
   [BASELINE_ID]:{
     name:'Classic Vanilla Custard (Baseline)',category:'traditional',
@@ -246,6 +246,43 @@ const BUILT_IN_CONFIGS={
     tags:['strawberry','allulose','keto','sugar-free','fruit','full-allulose','yolks-first'],
     source:{type:'custom',url:'',bookTitle:'',bookPage:'',
       rawText:'Full allulose strawberry custard. Strawberries cooked down to concentrated puree, folded into cooled custard. Milk reduced to 90g to compensate for puree water content.'},
+  },
+  'strawberry-mixed-sweetener-001':{
+    name:'Strawberry (Mixed Sweetener)',category:'experimental',
+    customIngredients:[
+      {id:'sm01',name:'Heavy cream 35%',nameJa:'純生クリーム 35%（タカナシ）',amount:95,unit:'g',category:'dairy'},
+      {id:'sm02',name:'Whole milk',nameJa:'牛乳',amount:80,unit:'g',category:'dairy'},
+      {id:'sm03',name:'Egg yolks',nameJa:'卵黄',amount:30,unit:'g',category:'egg',isYolk:true},
+      {id:'sm04',name:'Granulated sugar',nameJa:'グラニュー糖',amount:18,unit:'g',category:'sweetener'},
+      {id:'sm05',name:'Glucose syrup',nameJa:'水飴',amount:6,unit:'g',category:'sweetener'},
+      {id:'sm06',name:'Fresh strawberries',nameJa:'いちご',amount:100,unit:'g',category:'other'},
+      {id:'sm07',name:'Allulose (custard)',nameJa:'アルロース（カスタード用）',amount:16,unit:'g',category:'sweetener'},
+      {id:'sm08',name:'Allulose (berries)',nameJa:'アルロース（ベリー用）',amount:5,unit:'g',category:'sweetener'},
+      {id:'sm09',name:'Tapioca starch',nameJa:'タピオカ澱粉',amount:1.5,unit:'g',category:'stabilizer'},
+      {id:'sm10',name:'Cold milk (for slurry)',nameJa:'牛乳（スラリー用）',amount:6,unit:'g',category:'dairy'},
+      {id:'sm11',name:'Vanilla bean paste',nameJa:'バニラビーンズペースト',amount:2,unit:'g',category:'flavor'},
+      {id:'sm12',name:'Salt',nameJa:'塩',amount:1,unit:'g',category:'other'},
+    ],
+    customSteps:[
+      {id:'sm-s1',order:1,title:'Prep strawberries',instruction:'Hull and quarter 100g fresh strawberries.',timerSeconds:null,ingredients:['sm06'],condition:null},
+      {id:'sm-s2',order:2,title:'Macerate berries',instruction:'Toss the strawberries with 5g allulose in a small saucepan. Let sit 15–20 minutes until juicy.',timerSeconds:900,ingredients:['sm06','sm08'],condition:null},
+      {id:'sm-s3',order:3,title:'Cook down berries',instruction:'Cook over medium heat, stirring often, until the berries collapse and reduce to a thick, jammy puree with very little free liquid, about 8–9 minutes.',timerSeconds:540,ingredients:[],condition:null},
+      {id:'sm-s4',order:4,title:'Puree and strain',instruction:'Blend or mash smooth, then strain out the seeds. You want roughly 35–40g concentrated puree. Cool completely before using.',timerSeconds:null,ingredients:[],condition:null},
+      {id:'sm-s5',order:5,title:'Make tapioca slurry',instruction:'Whisk 1.5g tapioca starch with 6g cold milk until completely smooth.',timerSeconds:null,ingredients:['sm09','sm10'],condition:null},
+      {id:'sm-s6',order:6,title:'Heat dairy and sweeteners',instruction:'Combine 95g cream, 80g milk, 18g sugar, 6g glucose syrup, 16g allulose, and 1g salt in a saucepan. Heat over medium, whisking occasionally, until sweeteners dissolve and the mixture is steaming.',timerSeconds:300,ingredients:['sm01','sm02','sm04','sm05','sm07','sm12'],condition:null},
+      {id:'sm-s7',order:7,title:'Whisk yolks',instruction:'Whisk 30g egg yolks in a bowl until smooth.',timerSeconds:null,ingredients:['sm03'],condition:null},
+      {id:'sm-s8',order:8,title:'Temper the eggs',instruction:'Slowly pour about half a cup of the hot dairy into the yolks while whisking constantly. Then pour the tempered yolks back into the pot while whisking.',timerSeconds:null,ingredients:[],condition:null},
+      {id:'sm-s9',order:9,title:'Cook the custard',instruction:'Cook on medium-low, stirring constantly, until the custard reaches about 78°C and lightly coats the spatula.',timerSeconds:360,ingredients:[],condition:null},
+      {id:'sm-s10',order:10,title:'Add slurry and finish',instruction:'Whisk the tapioca slurry again, stream it into the custard, and cook 60–90 seconds more until the base reaches 82–84°C and looks just slightly thicker.',timerSeconds:90,ingredients:['sm09','sm10'],condition:null},
+      {id:'sm-s11',order:11,title:'Strain and cool',instruction:'Strain through fine mesh into a bowl set over an ice bath. Stir occasionally until cold.',timerSeconds:600,ingredients:[],condition:null},
+      {id:'sm-s12',order:12,title:'Add strawberry and vanilla',instruction:'Stir in the cooled strawberry puree and 2g vanilla bean paste until fully combined.',timerSeconds:null,ingredients:['sm06','sm11'],condition:null},
+      {id:'sm-s13',order:13,title:'Cure overnight',instruction:'Press plastic wrap directly onto the surface. Refrigerate overnight (minimum 4 hours).',timerSeconds:null,ingredients:[],condition:null},
+      {id:'sm-s14',order:14,title:'Churn and harden',instruction:'Churn per machine instructions (~20–30 minutes). Transfer to container, press plastic wrap on the surface, and harden 3–4 hours.',timerSeconds:1500,ingredients:[],condition:null},
+    ],
+    stats:{fatPercent:14,sweetenerPercent:15,totalSolidsPercent:39},
+    tags:['strawberry','fruit','mixed-sweetener','allulose','50-50-sweetener','experimental','creamier'],
+    source:{type:'custom',url:'',bookTitle:'',bookPage:'',
+      rawText:'Strawberry custard tuned for creaminess: 100g berries are cooked down to ~35–40g puree, sweetener is split close to 50/50 between traditional sugars and allulose, and a small tapioca slurry helps suppress iciness.'},
   },
   'caramelized-banana-001':{
     name:'Caramelized Banana (Mixed Sweetener)',category:'experimental',
@@ -405,6 +442,14 @@ No stabilizer — same reasoning as the vanilla batch. The strawberry puree adds
 
 If too soft after hardening, reduce allulose by 5g from the custard portion. If strawberry flavor is too subtle, use 150g berries next time and cook down further.`;
 
+const MIXED_STRAWBERRY_NOTES=`Strawberry version tuned for creaminess instead of max fruit load. The berries are reduced from 100g raw down to roughly 35–40g puree, which keeps the flavor concentrated while cutting enough water to avoid the icy edge from the previous batch.
+
+Sweetener split is close to 50/50: 18g sugar + 6g glucose syrup for body and chew, plus 21g total allulose (16g in the custard + 5g with the berries) for extra freezing point depression. The strawberries add a little natural sugar on top.
+
+The 1.5g tapioca starch slurry is intentional. At this batch size it helps bind the extra fruit water without turning the base gummy, and it should give a noticeably creamier finish than the full-allulose strawberry.
+
+If the finished batch is still firmer than you want, add 3–5g more allulose to the custard next round. If strawberry flavor is too light, go to 110g berries but still cook them all the way down to a jammy 35–40g puree.`;
+
 const CARAMELIZED_BANANA_NOTES=`Caramelized banana with a 50/50 mixed sweetener approach. Total sweetener from base: 35g (15g sugar + 5g glucose + 15g allulose). Bananas add ~15–18g natural sugar, bringing effective total to ~50–53g — similar sweetness territory to Batch 2a (48g total) which was the best so far.
 
 Sugar and glucose kept in for body, texture, and creaminess that full allulose lacked. This tests whether the mixed sweetener fixes the blandness from Batch 3's full allulose.
@@ -415,7 +460,7 @@ Caramelize the banana well — you want golden brown on both sides for depth of 
 
 Vanilla bean paste bumped to 3g (up from 2g in Batch 3) for more presence.`;
 
-const VARIANT_NOTES={[BASELINE_ID]:BASELINE_NOTES,'vanilla-keto-001':KETO_NOTES,'vanilla-50pct-sugar-001':HALF_SUGAR_NOTES,'vanilla-20pct-less-sweet-001':LESS_SWEET_NOTES,'oreo-50pct-sugar-001':OREO_NOTES,'allulose-vanilla-001':ALLULOSE_VANILLA_NOTES,'allulose-strawberry-001':ALLULOSE_STRAWBERRY_NOTES,'caramelized-banana-001':CARAMELIZED_BANANA_NOTES};
+const VARIANT_NOTES={[BASELINE_ID]:BASELINE_NOTES,'vanilla-keto-001':KETO_NOTES,'vanilla-50pct-sugar-001':HALF_SUGAR_NOTES,'vanilla-20pct-less-sweet-001':LESS_SWEET_NOTES,'oreo-50pct-sugar-001':OREO_NOTES,'allulose-vanilla-001':ALLULOSE_VANILLA_NOTES,'allulose-strawberry-001':ALLULOSE_STRAWBERRY_NOTES,'strawberry-mixed-sweetener-001':MIXED_STRAWBERRY_NOTES,'caramelized-banana-001':CARAMELIZED_BANANA_NOTES};
 
 function buildBuiltInRecipe(id,prefs){
   const config=BUILT_IN_CONFIGS[id];
