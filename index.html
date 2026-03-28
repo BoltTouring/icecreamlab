@@ -682,6 +682,87 @@ function getRecipeYolkReference(recipe){
   const yolk=recipe?.ingredients?.find(ing=>ing.isYolk&&typeof ing.amount==='number');
   return yolk?.amount||YOLK_REF_G;
 }
+function getRecipeContext(recipe){
+  const tags=(recipe?.tags||[]).map(tag=>String(tag).toLowerCase());
+  const name=(recipe?.name||'').toLowerCase();
+  const notes=(recipe?.notes||recipe?.source?.rawText||'').toLowerCase();
+  const ingredientNames=(recipe?.ingredients||[]).map(ing=>`${ing.id||''} ${ing.name||''}`.toLowerCase());
+  const hasTag=tag=>tags.includes(tag);
+  const hasText=text=>name.includes(text)||notes.includes(text)||ingredientNames.some(value=>value.includes(text));
+  return{
+    isFruit:recipe?.category==='sorbet'||['fruit','strawberry','banana','berry','mango','peach','citrus'].some(tag=>hasTag(tag)||hasText(tag)),
+    isStrawberry:hasTag('strawberry')||hasText('strawberry'),
+    isVanilla:hasTag('vanilla')||hasText('vanilla'),
+    hasSugar:ingredientNames.some(value=>value.includes('granulated sugar')||value.includes(' sugar')),
+    hasGlucose:ingredientNames.some(value=>value.includes('glucose syrup')||value.includes('glucose')),
+    hasAllulose:ingredientNames.some(value=>value.includes('allulose')),
+    hasTapioca:ingredientNames.some(value=>value.includes('tapioca starch')),
+    hasCornstarch:ingredientNames.some(value=>value.includes('cornstarch')),
+    hasStabilizer:ingredientNames.some(value=>value.includes('stabilizer')||value.includes('guar gum')||value.includes('xanthan gum')||value.includes('tapioca starch')||value.includes('cornstarch')),
+    hasVanillaPaste:ingredientNames.some(value=>value.includes('vanilla bean paste')),
+    hasVanillaExtract:ingredientNames.some(value=>value.includes('vanilla extract')),
+  };
+}
+function findBestRecipePeer(batch,allBatches){
+  return(allBatches||[])
+    .filter(candidate=>candidate.id!==batch?.id&&candidate.recipeId===batch?.recipeId&&(candidate.ratings?.overall||0)>0)
+    .sort((a,b)=>(b.ratings?.overall||0)-(a.ratings?.overall||0)||dateMs(b.date||b.createdAt)-dateMs(a.date||a.createdAt))[0]||null;
+}
+function buildBatchRecommendation(batch,recipe,allBatches){
+  if(!batch?.ratings) return null;
+  const ratings=batch.ratings||{};
+  const texture=ratings.texture||0;
+  const sweetness=ratings.sweetness||0;
+  const scoopability=ratings.scoopability||0;
+  const flavor=ratings.flavor||0;
+  const overall=ratings.overall||0;
+  const ctx=getRecipeContext(recipe);
+  const pushes=[];const signals=[];const seen=new Set();
+  const push=(signal,title,detail,priority=3)=>{
+    if(seen.has(title)) return;
+    seen.add(title);
+    if(signal) signals.push(signal);
+    pushes.push({title,detail,priority});
+  };
+  const scaledFrom=batch.scaledFromBatchMl||recipe?.servings||300;
+  const targetYolk=Math.round(getRecipeYolkReference(recipe)*(scaledFrom/300));
+  if(texture>0&&texture<=2){
+    if(ctx.isFruit&&ctx.hasTapioca) push('icy texture','Concentrate the fruit harder',ctx.isStrawberry?'Keep the strawberries very jammy and stop at about 35-40g finished puree. If it is still icy, bump tapioca starch from 1.5g to 2g.':'Cook the fruit down further before folding it in so you keep flavor but lose free water.',1);
+    else if(ctx.isFruit) push('icy texture','Reduce fruit water before you add more sweetness','Use slightly less fruit or cook the fruit down further before mixing it into the base. Concentration will help more than simply adding sugar.',1);
+    else if(!ctx.hasStabilizer&&batch.textureAgentUsed==='none') push('icy texture','Add a small texture assist','For the next round, add a light texture helper such as tapioca starch or guar gum instead of changing multiple ingredients at once.',1);
+    else push('icy texture','Add a little more body','Increase solids slightly next round with a small glucose/allulose bump or a modest starch/stabilizer increase.',1);
+  }
+  if(scoopability>0&&scoopability<=2){
+    push('too firm','Soften the freeze point slightly',ctx.hasAllulose||ctx.hasGlucose?'Add about 3-5g more allulose or glucose total next round, or remove a little water from the formula.':'Shift a little sweetener toward glucose syrup or allulose so the batch stays scoopable after hardening.',2);
+  }else if(scoopability>=5){
+    push('too soft','Pull back the softening sweeteners a touch',ctx.hasAllulose||ctx.hasGlucose?'Reduce allulose/glucose by about 3-5g total next round, or add 10g more milk if sweetness is already where you want it.':'Reduce total sweetener slightly so the batch firms up after hardening.',2);
+  }
+  if(sweetness>0&&sweetness<=2){
+    push('under-sweet','Raise sweetness without wrecking texture',ctx.hasAllulose&&ctx.hasSugar?'Add roughly 3g sugar and 2-3g allulose next round so sweetness and body move together.':ctx.hasAllulose?'Add 4-6g allulose next round, or a small sugar bump if you want more flavor lift.':'Add about 4-6g total sweetener next round.',3);
+  }else if(sweetness>=5){
+    push('too sweet','Trim sweetness first, not the whole formula',ctx.hasAllulose&&ctx.hasSugar?'Cut sugar first by about 3-5g and leave the glucose/allulose support in place if scoopability is already good.':'Reduce total sweetener by about 4-6g next round.',3);
+  }
+  if(flavor>0&&flavor<=2){
+    if(ctx.isStrawberry) push('weak flavor','Push strawberry concentration, not just strawberry weight','If the flavor still reads weak, go from 100g to about 110g berries but cook them down to the same 35-40g puree target.',2);
+    else if(ctx.isFruit) push('weak flavor','Concentrate the main flavor input','For fruit batches, increase flavor by reducing the fruit further before mixing, rather than adding more watery puree.',2);
+    else if(ctx.isVanilla) push('weak flavor','Bump the vanilla source slightly',ctx.hasVanillaPaste?'Increase vanilla paste by about 1-2g next round.':ctx.hasVanillaExtract?'Add a little more extract after cooling, or switch to paste/bean for stronger aroma.':'Increase the vanilla component modestly so the dairy base does not overpower it.',2);
+    else push('weak flavor','Increase the main flavor component by one notch','Make one clear flavor adjustment next round rather than changing multiple things at once.',2);
+  }
+  if(batch.yolkWeightG!=null&&targetYolk>0){
+    if(batch.yolkWeightG<targetYolk-2&&(texture<=3||overall<=3)) push('light body','Match the recipe yolk target next round',`This batch used ${batch.yolkWeightG}g yolk against a recipe-scaled target of about ${targetYolk}g. Bringing it back to target should add body and help creaminess.`,2);
+    else if(batch.yolkWeightG>targetYolk+3&&scoopability>=5) push('heavy yolk load','Pull yolk back toward the recipe target',`This batch used ${batch.yolkWeightG}g yolk against a recipe-scaled target of about ${targetYolk}g. If it felt too soft or heavy, bring it closer to target next round.`,3);
+  }
+  const custardTempC=readTempC(batch.temperature,'custardTemp');
+  const preChurnTempC=readTempC(batch.temperature,'preChurnTemp');
+  if(preChurnTempC!=null&&preChurnTempC>6&&(texture<=3||overall<=3)) push('warm base','Chill the base colder before churning','Try to churn closer to 4-6°C. A warm base tends to churn airier and finish icier.',2);
+  if(custardTempC!=null&&custardTempC<80&&(texture<=3||overall<=3)) push('thin custard','Cook the custard a touch further','Aim for about 82-84°C next round so the base sets with a little more body.',3);
+  if(custardTempC!=null&&custardTempC>86) push('hot cook','Stop the custard a little earlier','You are likely pushing the custard hotter than needed. Stop closer to 82-84°C to avoid dulling flavor or over-thickening the base.',3);
+  const focus=[];if(texture<=2)focus.push('creaminess');if(scoopability<=2||scoopability>=5)focus.push('scoopability');if(flavor<=2)focus.push('flavor');if(sweetness<=2||sweetness>=5)focus.push('sweetness');
+  const bestPeer=findBestRecipePeer(batch,allBatches);
+  const summary=overall>=4&&!focus.length?'This batch looks close. Freeze the base and only change one variable next round if you want to tune it further.':focus.length===1?`Next round should focus on ${focus[0]}.`:focus.length>=2?`Next round should focus on ${focus[0]} and ${focus[1]}.`:'These are the highest-signal tweaks for the next round.';
+  if(!pushes.length) push(null,'Keep the formula stable','This batch does not show a clear problem signal. Keep the base stable and only test one small change next round.',4);
+  return{summary,signals:[...new Set(signals)].slice(0,4),items:pushes.sort((a,b)=>a.priority-b.priority).slice(0,4),bestPeerId:bestPeer&&(bestPeer.ratings?.overall||0)>(overall||0)?bestPeer.id:null,bestPeerLabel:bestPeer&&(bestPeer.ratings?.overall||0)>(overall||0)?`${fmt(bestPeer.date||bestPeer.createdAt)} · ${bestPeer.ratings.overall}★`:null};
+}
 function playBeep(){try{const ctx=new(window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator();const g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=800;o.type='sine';g.gain.value=0.3;o.start();setTimeout(()=>{o.frequency.value=1000},200);setTimeout(()=>{o.frequency.value=800},400);setTimeout(()=>{o.stop();ctx.close()},600)}catch{}}
 function getStepIngredients(step,allIngredients){if(!step.ingredients?.length)return[];return step.ingredients.map(iid=>allIngredients.find(i=>i.id===iid)).filter(Boolean)}
 
@@ -692,6 +773,21 @@ function Stars({rating,size=18,onChange}){return(<div className="flex gap-0.5 it
 function CatBadge({category,small}){return(<span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-white font-semibold text-xs" style={{background:CAT_COLORS[category]||'#888'}}>{CAT_EMOJI[category]} {category}</span>)}
 function CafeBadge(){return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-500 text-white text-xs font-semibold">☕ cafe worthy</span>}
 function PrefBadge({vanilla,agent}){const parts=[];if(vanilla)parts.push(VANILLA_LABELS[vanilla]||vanilla);if(agent&&agent!=='none')parts.push(AGENT_LABELS[agent]||agent);if(!parts.length)return null;return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold">{parts.join(' · ')}</span>}
+function NextBatchCard({recommendation,onCompareBest}){
+  if(!recommendation) return null;
+  return(<div className="bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-100 rounded-2xl p-4 mb-4 shadow-sm">
+    <div className="flex items-start justify-between gap-3 mb-2">
+      <div>
+        <h3 className="font-bold text-orange-900 text-sm">🔬 Next Batch Recommendation</h3>
+        <p className="text-sm text-orange-700 mt-1">{recommendation.summary}</p>
+        {recommendation.bestPeerLabel&&<p className="text-xs text-orange-600 mt-1">Best prior batch: {recommendation.bestPeerLabel}</p>}
+      </div>
+      {recommendation.bestPeerId&&onCompareBest&&<button onClick={()=>onCompareBest(recommendation.bestPeerId)} className="px-3 py-1.5 rounded-lg bg-white text-orange-700 text-xs font-semibold border border-orange-200 hover:bg-orange-50">Compare best</button>}
+    </div>
+    {recommendation.signals.length>0&&<div className="flex gap-2 flex-wrap mb-3">{recommendation.signals.map(signal=><span key={signal} className="px-2.5 py-1 rounded-full bg-white/80 text-orange-700 text-xs font-semibold border border-orange-100">{signal}</span>)}</div>}
+    <div className="space-y-2">{recommendation.items.map(item=>(<div key={item.title} className="bg-white/80 rounded-xl px-3 py-2.5 border border-white"><div className="text-sm font-semibold text-gray-900">{item.title}</div><p className="text-sm text-gray-600 mt-0.5">{item.detail}</p></div>))}</div>
+  </div>);
+}
 
 function Modal({open,onClose,title,children,wide}){if(!open)return null;return(<div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center" onClick={onClose}><div className="fixed inset-0 bg-black/40"/><div className={`relative bg-white rounded-t-2xl sm:rounded-2xl ${wide?'w-full max-w-2xl':'w-full max-w-lg'} max-h-[90vh] overflow-y-auto slide-up`} onClick={e=>e.stopPropagation()}><div className="sticky top-0 bg-white rounded-t-2xl border-b px-5 py-4 flex items-center justify-between z-10"><h2 className="text-lg font-bold">{title}</h2><button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-xl">×</button></div><div className="p-5">{children}</div></div></div>)}
 function Confirm({open,onClose,onConfirm,title,message}){if(!open)return null;return(<div className="fixed inset-0 z-50 flex items-center justify-center p-4"><div className="fixed inset-0 bg-black/40" onClick={onClose}/><div className="relative bg-white rounded-2xl p-6 max-w-sm w-full fade-in"><h3 className="font-bold text-lg mb-2">{title}</h3><p className="text-gray-600 mb-5">{message}</p><div className="flex gap-3 justify-end"><button onClick={onClose} className="px-4 py-2 rounded-xl text-gray-600 hover:bg-gray-100 font-medium">Cancel</button><button onClick={()=>{onConfirm();onClose()}} className="px-4 py-2 rounded-xl bg-red-500 text-white font-medium hover:bg-red-600">Delete</button></div></div></div>)}
@@ -1131,11 +1227,12 @@ function BatchForm({recipes,editBatch,initialRecipeId,onSave,onBack,prefs,initia
   </div>);
 }
 
-function BatchDetail({batch,recipe,allBatches,recipes,onBack,onEdit,onDelete,onCompare,onShare,prefs}){
+function BatchDetail({batch,recipe,allBatches,recipes,onBack,onEdit,onDelete,onCompare,onCompareBest,onShare,prefs}){
   const[showDel,setShowDel]=useState(false);const dims=['overall','texture','sweetness','scoopability','flavor'];
   const tempUnit=prefs?.tempUnit||batch.temperature?.unit||'C';
   const custardTempC=readTempC(batch.temperature,'custardTemp');
   const preChurnTempC=readTempC(batch.temperature,'preChurnTemp');
+  const recommendation=useMemo(()=>buildBatchRecommendation(batch,recipe,allBatches),[batch,recipe,allBatches]);
   return(<div className="pb-20 fade-in">
     <BackBtn onClick={onBack}/>
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4" style={{borderTopWidth:4,borderTopColor:recipe?CAT_COLORS[recipe.category]:'#888'}}>
@@ -1145,6 +1242,7 @@ function BatchDetail({batch,recipe,allBatches,recipes,onBack,onEdit,onDelete,onC
     </div>
     {batch.photoUrl&&(<div className="mb-4"><img src={batch.photoUrl} alt="Batch photo" className="w-full rounded-2xl object-cover max-h-72 shadow-sm"/></div>)}
     {batch.modifications&&(<div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4"><h4 className="font-bold text-amber-800 text-sm mb-1">⚡ Modifications</h4><p className="text-sm text-amber-700">{batch.modifications}</p></div>)}
+    <NextBatchCard recommendation={recommendation} onCompareBest={onCompareBest}/>
     {(batch.flavorNotes||batch.textureNotes||batch.churningNotes||custardTempC!=null||preChurnTempC!=null)&&(<div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4 space-y-3">{batch.flavorNotes&&<div><h4 className="font-semibold text-sm text-gray-700">Flavor</h4><p className="text-sm text-gray-600">{batch.flavorNotes}</p></div>}{batch.textureNotes&&<div><h4 className="font-semibold text-sm text-gray-700">Texture</h4><p className="text-sm text-gray-600">{batch.textureNotes}</p></div>}{batch.churningNotes&&<div><h4 className="font-semibold text-sm text-gray-700">Churning</h4><p className="text-sm text-gray-600">{batch.churningNotes}</p></div>}{batch.churningTime&&<p className="text-xs text-gray-400">Churning time: {batch.churningTime} min</p>}{(custardTempC!=null||preChurnTempC!=null)&&(<p className="text-xs text-gray-400">{custardTempC!=null&&`Custard: ${tempStr(custardTempC,tempUnit)}`}{custardTempC!=null&&preChurnTempC!=null&&' · '}{preChurnTempC!=null&&`Pre-churn: ${tempStr(preChurnTempC,tempUnit)}`}</p>)}</div>)}
     <button onClick={onCompare} className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold mb-2 hover:bg-gray-200">⚖️ Compare with another batch</button>
     <Confirm open={showDel} onClose={()=>setShowDel(false)} onConfirm={onDelete} title="Delete batch?" message="This batch log will be permanently removed."/>
@@ -1169,9 +1267,9 @@ function LogTab({recipes,batches,addBatch,updateBatch,deleteBatch,nav,initialFil
   const selected=batches.find(b=>b.id===selectedId);const compareBatch=batches.find(b=>b.id===compareId);
   const filtered=useMemo(()=>{let b=[...batches].sort((a,c)=>dateMs(c.date||c.createdAt)-dateMs(a.date||a.createdAt));if(filterCat!=='all')b=b.filter(x=>{const r=recipes.find(r=>r.id===x.recipeId);return r?.category===filterCat});if(filterRecipe)b=b.filter(x=>x.recipeId===filterRecipe);if(filterCafe!=='all')b=b.filter(x=>filterCafe==='yes'?x.cafeWorthy:!x.cafeWorthy);if(filterAgent!=='all')b=b.filter(x=>x.textureAgentUsed===filterAgent);if(minRating>0)b=b.filter(x=>(x.ratings?.overall||0)>=minRating);if(search){const s=search.toLowerCase();b=b.filter(x=>x.flavorNotes?.toLowerCase().includes(s)||x.textureNotes?.toLowerCase().includes(s)||x.modifications?.toLowerCase().includes(s))}return b},[batches,recipes,filterCat,filterRecipe,filterCafe,filterAgent,minRating,search]);
 
-  if(view==='add'||view==='edit')return(<BatchForm recipes={recipes} editBatch={view==='edit'?editBatch:null} initialRecipeId={initialRecipeId} initialCookNotes={view==='add'?initialCookNotes:''} initialYolkWeightG={initialYolkWeightG} initialScaledFromBatchMl={initialScaledFromBatchMl} prefs={prefs} onBack={()=>setView('list')} onSave={data=>{if(view==='edit')updateBatch(editBatch.id,data);else addBatch(data);setView('list')}}/>);
+  if(view==='add'||view==='edit')return(<BatchForm recipes={recipes} editBatch={view==='edit'?editBatch:null} initialRecipeId={initialRecipeId} initialCookNotes={view==='add'?initialCookNotes:''} initialYolkWeightG={initialYolkWeightG} initialScaledFromBatchMl={initialScaledFromBatchMl} prefs={prefs} onBack={()=>setView('list')} onSave={data=>{if(view==='edit'){updateBatch(editBatch.id,data);setSelectedId(editBatch.id)}else{const nextId=addBatch(data);setSelectedId(nextId)}setView('detail')}}/>);
   if(view==='compare'&&selected&&compareBatch)return(<BatchCompare batch1={selected} batch2={compareBatch} recipe1={recipes.find(r=>r.id===selected.recipeId)} recipe2={recipes.find(r=>r.id===compareBatch.recipeId)} onBack={()=>{setView('detail');setCompareId(null)}}/>);
-  if(view==='detail'&&selected)return(<BatchDetail key={selected.id} batch={selected} recipe={recipes.find(r=>r.id===selected.recipeId)} allBatches={batches} recipes={recipes} prefs={prefs} onBack={()=>setView('list')} onEdit={()=>{setEditBatch(selected);setView('edit')}} onDelete={()=>{deleteBatch(selected.id);setView('list')}} onCompare={()=>setSelectingCompare(true)} onShare={()=>{const recipe=recipes.find(r=>r.id===selected.recipeId);const ordered=[...batches].sort((a,b)=>dateMs(a.createdAt)-dateMs(b.createdAt));const batchNum=Math.max(ordered.findIndex(batch=>batch.id===selected.id)+1,1);const rBar=v=>'█'.repeat(v)+'░'.repeat(5-v);const text=`🍦 Ice Cream Lab — Batch #${batchNum}\n\nRecipe: ${recipe?.name||'Unknown'}\nCategory: ${recipe?.category||'?'}\nVanilla: ${VANILLA_LABELS[selected.vanillaUsed]||'—'} | Agent: ${AGENT_LABELS[selected.textureAgentUsed]||'None'}\nRating: ${'★'.repeat(selected.ratings.overall)}${'☆'.repeat(5-selected.ratings.overall)}\n\nTexture: ${rBar(selected.ratings.texture)} ${RATING_LABELS.texture[selected.ratings.texture-1]||''}\nSweetness: ${rBar(selected.ratings.sweetness)} ${RATING_LABELS.sweetness[selected.ratings.sweetness-1]||''}\nScoopability: ${rBar(selected.ratings.scoopability)} ${RATING_LABELS.scoopability[selected.ratings.scoopability-1]||''}\nFlavor: ${rBar(selected.ratings.flavor)} ${RATING_LABELS.flavor[selected.ratings.flavor-1]||''}\n${selected.modifications?`\nModifications: ${selected.modifications}`:''}${selected.flavorNotes?`\nNotes: ${selected.flavorNotes}`:''}\n\nCafe worthy? ${selected.cafeWorthy?'✅':'❌'}\n\n#IceCreamLab #HomemadeIceCream`;setShareText(text)}}/>);
+  if(view==='detail'&&selected)return(<BatchDetail key={selected.id} batch={selected} recipe={recipes.find(r=>r.id===selected.recipeId)} allBatches={batches} recipes={recipes} prefs={prefs} onBack={()=>setView('list')} onEdit={()=>{setEditBatch(selected);setView('edit')}} onDelete={()=>{deleteBatch(selected.id);setView('list')}} onCompare={()=>setSelectingCompare(true)} onCompareBest={(bestId)=>{setCompareId(bestId);setView('compare')}} onShare={()=>{const recipe=recipes.find(r=>r.id===selected.recipeId);const ordered=[...batches].sort((a,b)=>dateMs(a.createdAt)-dateMs(b.createdAt));const batchNum=Math.max(ordered.findIndex(batch=>batch.id===selected.id)+1,1);const rBar=v=>'█'.repeat(v)+'░'.repeat(5-v);const text=`🍦 Ice Cream Lab — Batch #${batchNum}\n\nRecipe: ${recipe?.name||'Unknown'}\nCategory: ${recipe?.category||'?'}\nVanilla: ${VANILLA_LABELS[selected.vanillaUsed]||'—'} | Agent: ${AGENT_LABELS[selected.textureAgentUsed]||'None'}\nRating: ${'★'.repeat(selected.ratings.overall)}${'☆'.repeat(5-selected.ratings.overall)}\n\nTexture: ${rBar(selected.ratings.texture)} ${RATING_LABELS.texture[selected.ratings.texture-1]||''}\nSweetness: ${rBar(selected.ratings.sweetness)} ${RATING_LABELS.sweetness[selected.ratings.sweetness-1]||''}\nScoopability: ${rBar(selected.ratings.scoopability)} ${RATING_LABELS.scoopability[selected.ratings.scoopability-1]||''}\nFlavor: ${rBar(selected.ratings.flavor)} ${RATING_LABELS.flavor[selected.ratings.flavor-1]||''}\n${selected.modifications?`\nModifications: ${selected.modifications}`:''}${selected.flavorNotes?`\nNotes: ${selected.flavorNotes}`:''}\n\nCafe worthy? ${selected.cafeWorthy?'✅':'❌'}\n\n#IceCreamLab #HomemadeIceCream`;setShareText(text)}}/>);
   if(selectingCompare)return(<div className="pb-20 fade-in"><BackBtn onClick={()=>setSelectingCompare(false)} label="Cancel"/><h2 className="text-xl font-bold mb-4">Select batch to compare</h2><div className="grid gap-3">{batches.filter(b=>b.id!==selectedId).map(b=>(<BatchCard key={b.id} batch={b} recipe={recipes.find(r=>r.id===b.recipeId)} onClick={()=>{setCompareId(b.id);setSelectingCompare(false);setView('compare')}}/>))}</div></div>);
 
   return(<div className="pb-20">
