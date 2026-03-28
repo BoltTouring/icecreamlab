@@ -677,6 +677,11 @@ function avgRating(batches,rid){const rb=rid?batches.filter(b=>b.recipeId===rid)
 function batchCount(batches,rid){return batches.filter(b=>b.recipeId===rid).length}
 function hasCafe(batches,rid){return batches.some(b=>b.recipeId===rid&&b.cafeWorthy)}
 function scaleAmt(amt,orig,target){if(typeof amt==='string')return amt;return Math.round(amt*(target/orig)*100)/100}
+function recipeSupportsYolkScaling(recipe){return !!recipe?.ingredients?.some(ing=>ing.isYolk&&typeof ing.amount==='number')}
+function getRecipeYolkReference(recipe){
+  const yolk=recipe?.ingredients?.find(ing=>ing.isYolk&&typeof ing.amount==='number');
+  return yolk?.amount||YOLK_REF_G;
+}
 function playBeep(){try{const ctx=new(window.AudioContext||window.webkitAudioContext)();const o=ctx.createOscillator();const g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=800;o.type='sine';g.gain.value=0.3;o.start();setTimeout(()=>{o.frequency.value=1000},200);setTimeout(()=>{o.frequency.value=800},400);setTimeout(()=>{o.stop();ctx.close()},600)}catch{}}
 function getStepIngredients(step,allIngredients){if(!step.ingredients?.length)return[];return step.ingredients.map(iid=>allIngredients.find(i=>i.id===iid)).filter(Boolean)}
 
@@ -812,18 +817,20 @@ function RecipeList({recipes,batches,onSelect,onAdd}){
 }
 
 function RecipeDetail({recipe,batches,onBack,onEdit,onDuplicate,onDelete,onCook,onViewBatches,onExport,prefs,onOpenPrefs}){
+  const canAdjustYolk=recipeSupportsYolkScaling(recipe);
+  const recipeYolkRef=getRecipeYolkReference(recipe);
   const[scale,setScale]=useState(recipe.servings);const[showDel,setShowDel]=useState(false);const[showMenu,setShowMenu]=useState(false);
-  const[yolkWeight,setYolkWeight]=useState(()=>Math.round(YOLK_REF_G*(recipe.servings/300)));
+  const[yolkWeight,setYolkWeight]=useState(()=>Math.round(recipeYolkRef*(recipe.servings/300)));
   const[yolkEdited,setYolkEdited]=useState(false);
   const[scaleInput,setScaleInput]=useState(String(recipe.servings));
-  const[yolkInput,setYolkInput]=useState(String(Math.round(YOLK_REF_G*(recipe.servings/300))));
+  const[yolkInput,setYolkInput]=useState(String(Math.round(recipeYolkRef*(recipe.servings/300))));
   const avg=avgRating(batches,recipe.id);const count=batchCount(batches,recipe.id);
   const menuRef=useRef(null);
   const tempUnit=prefs?.tempUnit||'C';
   const sourceUrl=safeExternalUrl(recipe.source?.url);
   const batchMult=scale/(recipe.servings||300);
-  const yolkRef=Math.round(YOLK_REF_G*batchMult);
-  const yolkMult=yolkEdited&&recipe.isBaseline?(yolkWeight/yolkRef):1;
+  const yolkRef=Math.round(recipeYolkRef*batchMult);
+  const yolkMult=yolkEdited&&canAdjustYolk?(yolkWeight/yolkRef):1;
   const isScaled=yolkEdited&&yolkMult!==1;
   const scaleIng=(ing)=>{
     if(typeof ing.amount==='string')return ing.amount;
@@ -832,7 +839,7 @@ function RecipeDetail({recipe,batches,onBack,onEdit,onDuplicate,onDelete,onCook,
     if(ing.category==='stabilizer')return Math.round(base*100)/100;
     return Math.round(base);
   };
-  const commitBatch=(v)=>{const val=+v||recipe.servings;setScale(val);setScaleInput(String(val));if(!yolkEdited){const y=Math.round(YOLK_REF_G*(val/300));setYolkWeight(y);setYolkInput(String(y))}};
+  const commitBatch=(v)=>{const val=+v||recipe.servings;setScale(val);setScaleInput(String(val));if(!yolkEdited){const y=Math.round(recipeYolkRef*(val/300));setYolkWeight(y);setYolkInput(String(y))}};
   const commitYolk=(v)=>{const val=+v||yolkRef;setYolkWeight(val);setYolkInput(String(val));setYolkEdited(true)};
   const resetYolk=()=>{setYolkWeight(yolkRef);setYolkInput(String(yolkRef));setYolkEdited(false)};
   useEffect(()=>{if(!showMenu)return;const h=e=>{if(menuRef.current&&!menuRef.current.contains(e.target))setShowMenu(false)};document.addEventListener('pointerdown',h);return()=>document.removeEventListener('pointerdown',h)},[showMenu]);
@@ -866,8 +873,8 @@ function RecipeDetail({recipe,batches,onBack,onEdit,onDuplicate,onDelete,onCook,
       <div className="flex items-center justify-between mb-3"><h3 className="font-bold text-gray-900">Ingredients</h3><div className="flex items-center gap-2"><span className="text-xs text-gray-500">Batch:</span><input type="number" value={scaleInput} onChange={e=>setScaleInput(e.target.value)} onBlur={e=>commitBatch(e.target.value)} min={50} step={50} className="w-20 px-2 py-1 border rounded-lg text-sm text-center font-semibold"/><span className="text-xs text-gray-500">ml</span></div></div>
       {isScaled&&<div className="flex items-center gap-2 mb-3"><span className="text-xs bg-blue-50 text-blue-600 font-semibold px-2 py-0.5 rounded-full">Scaled to yolk weight</span><button onClick={resetYolk} className="text-xs text-accent font-semibold hover:underline">Reset</button></div>}
       <div className="divide-y">{recipe.ingredients.map(ing=>{
-        const amt=recipe.isBaseline?scaleIng(ing):scaleAmt(ing.amount,recipe.servings,scale);
-        const isYolk=ing.isYolk&&recipe.isBaseline;
+        const amt=canAdjustYolk?scaleIng(ing):scaleAmt(ing.amount,recipe.servings,scale);
+        const isYolk=ing.isYolk&&canAdjustYolk;
         return(<div key={ing.id} className="py-2 flex items-center justify-between">
           <div><span className="font-medium text-gray-900">{ing.name}</span>{ing.nameJa&&<span className="text-xs text-gray-400 ml-2">{ing.nameJa}</span>}</div>
           {isYolk?(<div className="flex items-center gap-1"><input type="number" value={yolkInput} onChange={e=>setYolkInput(e.target.value)} onBlur={e=>commitYolk(e.target.value)} min={10} step={1} className="w-16 px-2 py-1 border-2 border-accent/30 rounded-lg text-sm text-center font-bold text-accent bg-accent/5 focus:border-accent focus:outline-none"/><span className="text-sm font-semibold text-accent">g</span></div>):(<span className={`font-semibold ${isScaled&&!ing.isYolk?'text-blue-600':'text-accent'}`}>{amt} {ing.unit}</span>)}
@@ -882,7 +889,7 @@ function RecipeDetail({recipe,batches,onBack,onEdit,onDuplicate,onDelete,onCook,
     {recipe.source?.rawText&&(<div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4"><h3 className="font-bold text-gray-900 mb-2">Source</h3>{recipe.source.type==='url'&&sourceUrl&&<a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="text-accent text-sm underline break-all">{sourceUrl}</a>}{recipe.source.type==='url'&&!sourceUrl&&recipe.source.url&&<p className="text-sm text-gray-600 break-all">{recipe.source.url}</p>}{recipe.source.type==='book'&&<p className="text-sm text-gray-600">{recipe.source.bookTitle} — {recipe.source.bookPage}</p>}<p className="text-sm text-gray-500 mt-1 whitespace-pre-line">{recipe.source.rawText}</p></div>)}
     {recipe.tags?.length>0&&(<div className="flex flex-wrap gap-2 mb-4">{recipe.tags.map(t=><span key={t} className="text-xs bg-gray-100 text-gray-600 px-3 py-1 rounded-full">#{t}</span>)}</div>)}
     <div className="flex gap-3">
-      <button onClick={onCook} className="flex-1 py-3 bg-accent text-white rounded-xl font-bold text-base hover:opacity-90 active:scale-[0.98] transition-all">🔥 Start Cooking</button>
+      <button onClick={()=>onCook?.({batchScale:scale,yolkWeightG:canAdjustYolk?yolkWeight:null})} className="flex-1 py-3 bg-accent text-white rounded-xl font-bold text-base hover:opacity-90 active:scale-[0.98] transition-all">🔥 Start Cooking</button>
       <button onClick={onViewBatches} className="px-5 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200">📋 Batches ({count})</button>
     </div>
     {!recipe.isBuiltIn&&<Confirm open={showDel} onClose={()=>setShowDel(false)} onConfirm={onDelete} title="Delete recipe?" message={`"${recipe.name}" will be permanently removed.`}/>}
@@ -950,7 +957,7 @@ function RecipesTab({recipes,batches,nav,addRecipe,updateRecipe,deleteRecipe,dup
   const[showPrefs,setShowPrefs]=useState(false);
   const selected=recipes.find(r=>r.id===selectedId);const editing=editId?recipes.find(r=>r.id===editId):null;
   const customizingBuiltIn=!!editing?.isBuiltIn;
-  if(view==='detail'&&selected)return(<><RecipeDetail key={selected.id} recipe={selected} batches={batches} prefs={prefs} onOpenPrefs={()=>setShowPrefs(true)} onBack={()=>setView('list')} onEdit={()=>{setEditId(selected.id);setView('form')}} onDuplicate={()=>{const newId=duplicateRecipe(selected.id);if(newId)setSelectedId(newId);setView(newId?'detail':'list')}} onDelete={()=>{deleteRecipe(selected.id);setView('list')}} onCook={()=>nav('cook-active',{recipeId:selected.id})} onViewBatches={()=>nav('log',{filter:selected.id})} onExport={()=>downloadJson(`${selected.name.replace(/\s+/g,'-')}.json`,selected)}/><PreferencesSheet open={showPrefs} onClose={()=>setShowPrefs(false)} prefs={prefs} onSave={onPrefsChange}/></>);
+  if(view==='detail'&&selected)return(<><RecipeDetail key={selected.id} recipe={selected} batches={batches} prefs={prefs} onOpenPrefs={()=>setShowPrefs(true)} onBack={()=>setView('list')} onEdit={()=>{setEditId(selected.id);setView('form')}} onDuplicate={()=>{const newId=duplicateRecipe(selected.id);if(newId)setSelectedId(newId);setView(newId?'detail':'list')}} onDelete={()=>{deleteRecipe(selected.id);setView('list')}} onCook={(options)=>nav('cook-active',{recipeId:selected.id,...options})} onViewBatches={()=>nav('log',{filter:selected.id})} onExport={()=>downloadJson(`${selected.name.replace(/\s+/g,'-')}.json`,selected)}/><PreferencesSheet open={showPrefs} onClose={()=>setShowPrefs(false)} prefs={prefs} onSave={onPrefsChange}/></>);
   if(view==='form')return(<RecipeForm key={`${editId||'new'}-${customizingBuiltIn?'copy':'edit'}`} recipe={editing} customizingBuiltIn={customizingBuiltIn} onBack={()=>{setView(editing?'detail':'list');setEditId(null)}} onSave={(data)=>{if(editing&&!customizingBuiltIn){updateRecipe(editing.id,data);setSelectedId(editing.id);setView('detail')}else{const newId=addRecipe({...data,id:uid(),derivedFromBuiltInId:customizingBuiltIn?editing.id:data.derivedFromBuiltInId||null});setSelectedId(newId);setView('detail')}setEditId(null)}}/>);
   return(<><RecipeList recipes={recipes} batches={batches} onSelect={id=>{setSelectedId(id);setView('detail')}} onAdd={()=>setShowAddMenu(true)}/>{showAddMenu&&(<div className="fixed inset-0 z-40" onClick={()=>setShowAddMenu(false)}><div className="fixed inset-0 bg-black/20"/><div className="fixed bottom-28 right-5 bg-white rounded-2xl shadow-xl p-2 z-50 fade-in w-52" onClick={e=>e.stopPropagation()}><button onClick={()=>{setShowAddMenu(false);setEditId(null);setView('form')}} className="w-full px-4 py-3 text-left text-sm font-semibold hover:bg-gray-50 rounded-xl">📝 New Recipe</button><button onClick={()=>{setShowAddMenu(false);setShowImport(true)}} className="w-full px-4 py-3 text-left text-sm font-semibold hover:bg-gray-50 rounded-xl">📥 Import JSON</button></div></div>)}<JsonImportModal open={showImport} onClose={()=>setShowImport(false)} onImport={importRecipe}/></>);
 }
@@ -991,12 +998,14 @@ function CookMode({recipe,onExit,onLogBatch,prefs,onOpenPrefs,batchScale,yolkWei
   const[notes,setNotes]=useState(()=>{try{return localStorage.getItem(notesKey)||''}catch{return''}});
   const saveNotes=useCallback((v)=>{setNotes(v);try{localStorage.setItem(notesKey,v)}catch{}},[notesKey]);
   // Scaling logic — mirrors RecipeDetail
+  const canAdjustYolk=recipeSupportsYolkScaling(recipe);
+  const recipeYolkRef=getRecipeYolkReference(recipe);
   const scale=batchScale||recipe.servings||300;
   const batchMult=scale/(recipe.servings||300);
-  const yolkRef=Math.round(YOLK_REF_G*batchMult);
+  const yolkRef=Math.round(recipeYolkRef*batchMult);
   const yW=yolkWeight||yolkRef;
-  const yolkEdited=yolkWeight&&yolkWeight!==yolkRef;
-  const yolkMult=yolkEdited&&recipe.isBaseline?(yW/yolkRef):1;
+  const yolkEdited=canAdjustYolk&&yolkWeight&&yolkWeight!==yolkRef;
+  const yolkMult=yolkEdited?(yW/yolkRef):1;
   const cookScaleIng=(ing)=>{
     if(typeof ing.amount==='string')return ing.amount;
     if(ing.isYolk)return yolkEdited?yW:Math.round(ing.amount*batchMult);
@@ -1029,7 +1038,7 @@ function CookMode({recipe,onExit,onLogBatch,prefs,onOpenPrefs,batchScale,yolkWei
     <div className="flex-1 overflow-y-auto px-5 py-4">
       <div className="text-accent font-bold text-sm mb-2">Step {step+1} of {sorted.length}</div>
       <h2 className="text-2xl font-bold mb-4">{current.title}</h2>
-      {stepIngs.length>0&&(<div className="bg-gray-800/50 rounded-xl p-4 mb-4">{stepIngs.map(ing=>(<div key={ing.id} className="flex justify-between py-1.5 text-sm"><span className="text-gray-300">{ing.name}</span><span className="text-accent font-bold">{recipe.isBaseline?cookScaleIng(ing):scaleAmt(ing.amount,recipe.servings,scale)} {ing.unit}</span></div>))}</div>)}
+      {stepIngs.length>0&&(<div className="bg-gray-800/50 rounded-xl p-4 mb-4">{stepIngs.map(ing=>(<div key={ing.id} className="flex justify-between py-1.5 text-sm"><span className="text-gray-300">{ing.name}</span><span className="text-accent font-bold">{canAdjustYolk?cookScaleIng(ing):scaleAmt(ing.amount,recipe.servings,scale)} {ing.unit}</span></div>))}</div>)}
       <p className="text-lg leading-relaxed text-gray-200 mb-6">{convertTempsInText(current.instruction,prefs?.tempUnit)}</p>
       {current.timerSeconds&&<CookTimer seconds={current.timerSeconds} onDone={()=>{}}/>}
       <div className="text-center text-gray-600 text-xs mt-4 pb-2">Tap progress bar to jump · Swipe to navigate</div>
@@ -1038,20 +1047,20 @@ function CookMode({recipe,onExit,onLogBatch,prefs,onOpenPrefs,batchScale,yolkWei
       <button onClick={goPrev} disabled={step===0} className={`w-20 py-3.5 rounded-xl font-bold text-sm min-h-[48px] ${step===0?'bg-gray-800 text-gray-600':'bg-gray-700 text-white active:bg-gray-600'}`}>← Prev</button>
       {step<sorted.length-1?(<button onClick={goNext} className="flex-1 py-3.5 bg-accent text-white rounded-xl font-bold text-base min-h-[48px] hover:opacity-90 active:scale-[0.98] transition-all">Next →</button>):(<button onClick={goNext} className="flex-1 py-3.5 bg-green-500 text-white rounded-xl font-bold text-base min-h-[48px] hover:opacity-90 active:scale-[0.98] transition-all">Finish ✓</button>)}
     </div>
-    {showIngredients&&(<div className="fixed inset-0 z-[110] bg-gray-900/95 flex flex-col"><div className="flex items-center justify-between px-5 py-4 border-b border-gray-700"><h3 className="font-bold text-lg">All Ingredients{scale!==recipe.servings&&<span className="text-sm text-accent font-medium ml-2">({scale}ml batch)</span>}</h3><button onClick={()=>setShowIngredients(false)} className="text-gray-400 hover:text-white text-xl min-w-[48px] min-h-[48px] flex items-center justify-center">×</button></div><div className="flex-1 overflow-y-auto px-5 py-4">{recipe.ingredients.map(ing=>(<div key={ing.id} className="flex justify-between py-2.5 border-b border-gray-800"><div><span className="text-gray-200">{ing.name}</span>{ing.nameJa&&<span className="text-gray-500 text-sm ml-2">{ing.nameJa}</span>}</div><span className="text-accent font-bold">{recipe.isBaseline?cookScaleIng(ing):scaleAmt(ing.amount,recipe.servings,scale)} {ing.unit}</span></div>))}</div></div>)}
+    {showIngredients&&(<div className="fixed inset-0 z-[110] bg-gray-900/95 flex flex-col"><div className="flex items-center justify-between px-5 py-4 border-b border-gray-700"><h3 className="font-bold text-lg">All Ingredients{scale!==recipe.servings&&<span className="text-sm text-accent font-medium ml-2">({scale}ml batch)</span>}</h3><button onClick={()=>setShowIngredients(false)} className="text-gray-400 hover:text-white text-xl min-w-[48px] min-h-[48px] flex items-center justify-center">×</button></div><div className="flex-1 overflow-y-auto px-5 py-4">{recipe.ingredients.map(ing=>(<div key={ing.id} className="flex justify-between py-2.5 border-b border-gray-800"><div><span className="text-gray-200">{ing.name}</span>{ing.nameJa&&<span className="text-gray-500 text-sm ml-2">{ing.nameJa}</span>}</div><span className="text-accent font-bold">{canAdjustYolk?cookScaleIng(ing):scaleAmt(ing.amount,recipe.servings,scale)} {ing.unit}</span></div>))}</div></div>)}
     {showNotes&&(<div className="fixed inset-0 z-[110] bg-gray-900/95 flex flex-col"><div className="flex items-center justify-between px-5 py-4 border-b border-gray-700"><h3 className="font-bold text-lg">📝 Cook Notes</h3><button onClick={()=>setShowNotes(false)} className="text-gray-400 hover:text-white text-xl min-w-[48px] min-h-[48px] flex items-center justify-center">×</button></div><div className="flex-1 overflow-y-auto px-5 py-4"><p className="text-gray-400 text-sm mb-3">Jot notes as you cook. These will pre-fill the batch log when you finish.</p><textarea value={notes} onChange={e=>saveNotes(e.target.value)} placeholder="How does the custard look? Any tweaks you made? Temperature readings..." rows={12} className="w-full bg-gray-800 border border-gray-700 rounded-xl p-4 text-gray-100 text-base leading-relaxed focus:outline-none focus:border-accent resize-none" autoFocus/></div></div>)}
     {showExitConfirm&&(<div className="fixed inset-0 z-[110] flex items-center justify-center p-4"><div className="fixed inset-0 bg-black/60" onClick={()=>setShowExitConfirm(false)}/><div className="relative bg-gray-800 rounded-2xl p-6 max-w-sm w-full"><h3 className="font-bold text-lg mb-2">Exit cook mode?</h3><p className="text-gray-400 mb-5">Your progress won't be saved.</p><div className="flex gap-3"><button onClick={()=>setShowExitConfirm(false)} className="flex-1 py-3 rounded-xl bg-gray-700 text-white font-semibold min-h-[48px]">Stay</button><button onClick={onExit} className="flex-1 py-3 rounded-xl bg-red-500 text-white font-semibold min-h-[48px]">Exit</button></div></div></div>)}
   </div>);
 }
 
-function CookTab({recipes,batches,nav,initialRecipeId,onCookingChange,prefs,onPrefsChange}){
+function CookTab({recipes,batches,nav,initialRecipeId,initialBatchScale,initialYolkWeightG,onCookingChange,prefs,onPrefsChange}){
   const[selectedId,setSelectedId]=useState(initialRecipeId||null);const[cooking,setCooking]=useState(false);const[search,setSearch]=useState('');
   const[showPrefs,setShowPrefs]=useState(false);
-  const[batchScale,setBatchScale]=useState(300);const[yolkWeight,setYolkWeight]=useState(YOLK_REF_G);
+  const[batchScale,setBatchScale]=useState(initialBatchScale||300);const[yolkWeight,setYolkWeight]=useState(initialYolkWeightG??YOLK_REF_G);
   const recipe=recipes.find(r=>r.id===selectedId);
-  const startCooking=(id)=>{const r=recipes.find(x=>x.id===id);const sv=r?.servings||300;setSelectedId(id);setBatchScale(sv);setYolkWeight(Math.round(YOLK_REF_G*(sv/300)));setCooking(true);onCookingChange?.(true)};
+  const startCooking=(id,options={})=>{const r=recipes.find(x=>x.id===id);const sv=options.batchScale||r?.servings||300;const yolkRef=Math.round(getRecipeYolkReference(r)*(sv/300));setSelectedId(id);setBatchScale(sv);setYolkWeight(options.yolkWeightG??yolkRef);setCooking(true);onCookingChange?.(true)};
   const stopCooking=()=>{setCooking(false);setSelectedId(null);onCookingChange?.(false)};
-  useEffect(()=>{if(initialRecipeId){startCooking(initialRecipeId)}},[]);
+  useEffect(()=>{if(initialRecipeId){startCooking(initialRecipeId,{batchScale:initialBatchScale,yolkWeightG:initialYolkWeightG})}},[]);
   if(cooking&&recipe)return(<><CookMode recipe={recipe} prefs={prefs} onOpenPrefs={()=>setShowPrefs(true)} onExit={stopCooking} batchScale={batchScale} yolkWeight={yolkWeight} onLogBatch={(cookNotes)=>{stopCooking();try{localStorage.removeItem(`cook-notes-${recipe.id}`)}catch{};nav('log-add',{recipeId:recipe.id,cookNotes:cookNotes||'',yolkWeightG:yolkWeight,scaledFromBatchMl:batchScale})}}/><PreferencesSheet open={showPrefs} onClose={()=>setShowPrefs(false)} prefs={prefs} onSave={onPrefsChange}/></>);
   const filtered=search?recipes.filter(r=>r.name.toLowerCase().includes(search.toLowerCase())):recipes;
   return(<div className="pb-20"><h2 className="text-xl font-bold mb-4">🔥 Start Cooking</h2><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search recipes..." className="w-full px-4 py-2.5 bg-white rounded-xl border border-gray-200 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-accent/30"/>{filtered.length===0?(<EmptyState emoji="📖" title="No recipes" desc="Add recipes first to start cooking"/>):(<div className="grid gap-3">{filtered.map(r=>(<button key={r.id} onClick={()=>startCooking(r.id)} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-left hover:shadow-md transition-all" style={{borderLeftWidth:4,borderLeftColor:CAT_COLORS[r.category]}}><div className="flex items-center justify-between"><div><h3 className="font-bold text-gray-900">{r.name}</h3><span className="text-sm text-gray-500">{r.steps?.length||0} steps · {r.ingredients?.length||0} ingredients</span></div><span className="text-2xl">▶</span></div></button>))}</div>)}</div>);
@@ -1394,7 +1403,7 @@ function App(){
 
       {/* Tab content */}
       {tab==='recipes'&&<RecipesTab recipes={recipes} batches={batches} addRecipe={addRecipe} updateRecipe={updateRecipe} deleteRecipe={deleteRecipe} duplicateRecipe={duplicateRecipe} importRecipe={importRecipe} nav={nav} prefs={prefs} onPrefsChange={savePrefs}/>}
-      {tab==='cook'&&<CookTab recipes={recipes} batches={batches} nav={nav} onCookingChange={setIsCooking} prefs={prefs} onPrefsChange={savePrefs}/>}
+      {tab==='cook'&&<CookTab recipes={recipes} batches={batches} nav={nav} initialRecipeId={navParams.recipeId} initialBatchScale={navParams.batchScale} initialYolkWeightG={navParams.yolkWeightG} onCookingChange={setIsCooking} prefs={prefs} onPrefsChange={savePrefs}/>}
       {tab==='log'&&<LogTab recipes={recipes} batches={batches} addBatch={addBatch} updateBatch={updateBatch} deleteBatch={deleteBatch} nav={nav} initialView={navParams.screen} initialFilter={navParams.filter} initialRecipeId={navParams.recipeId} prefs={prefs} initialCookNotes={navParams.cookNotes} initialYolkWeightG={navParams.yolkWeightG} initialScaledFromBatchMl={navParams.scaledFromBatchMl}/>}
       {tab==='progress'&&<ProgressTab batches={batches} recipes={recipes}/>}
 
