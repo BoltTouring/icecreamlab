@@ -1,8 +1,15 @@
-const CACHE_NAME = 'icecreamlab-v1';
+const CACHE_NAME = 'icecreamlab-v2';
+const APP_ROOT_URL = new URL('./', self.registration.scope).toString();
+const INDEX_URL = new URL('./index.html', self.registration.scope).toString();
+const MANIFEST_URL = new URL('./manifest.json', self.registration.scope).toString();
+const ICON_192_URL = new URL('./icons/icon-192.png', self.registration.scope).toString();
+const ICON_512_URL = new URL('./icons/icon-512.png', self.registration.scope).toString();
 const ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.json',
+  APP_ROOT_URL,
+  INDEX_URL,
+  MANIFEST_URL,
+  ICON_192_URL,
+  ICON_512_URL,
   'https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js',
@@ -47,7 +54,7 @@ self.addEventListener('fetch', (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
           return response;
         })
-        .catch(() => caches.match(event.request) || caches.match('/index.html'))
+        .catch(() => caches.match(event.request) || caches.match(INDEX_URL))
     );
     return;
   }
@@ -56,7 +63,7 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(event.request).then((cached) => {
       const fetchPromise = fetch(event.request).then((response) => {
-        if (response.ok) {
+        if (response.ok || response.type === 'opaque') {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
         }

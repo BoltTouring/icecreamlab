@@ -53,8 +53,27 @@ const RATING_LABELS={
   flavor:['Off/bland','Weak','Good','Great','Excellent'],
   overall:['Poor','Below avg','Average','Good','Excellent']
 };
+const STORAGE_KEYS={prefs:'icl-prefs',legacyRecipes:'icl-recipes',customRecipes:'icl-custom-recipes',batches:'icl-batches'};
+const BUILT_IN_RECIPE_CREATED_AT='2026-02-08T00:00:00Z';
 const uid=()=>crypto.randomUUID();
-const fmt=(d)=>new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+function parseDateValue(value){
+  if(!value) return null;
+  if(value instanceof Date) return new Date(value);
+  if(typeof value==='string'){
+    const m=value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if(m) return new Date(+m[1],+m[2]-1,+m[3]);
+  }
+  return new Date(value);
+}
+function isValidDate(value){return value instanceof Date&&!Number.isNaN(value.getTime())}
+function localDateInputValue(date=new Date()){
+  return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+}
+function dateMs(value){const parsed=parseDateValue(value);return isValidDate(parsed)?parsed.getTime():0}
+function fmt(value){
+  const parsed=parseDateValue(value);
+  return isValidDate(parsed)?parsed.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
+}
 
 // ── Preferences constants ──
 const VANILLA_OPTIONS=[
@@ -93,6 +112,7 @@ const VANILLA_INGREDIENTS={
 // Temperature conversion helpers
 const TEMP_REFS={'82':'180','80':'176','85':'185','10':'50','4':'40'};
 function toF(c){return Math.round(c*9/5+32)}
+function toC(f){return Math.round((f-32)*5/9*10)/10}
 function tempStr(c,unit){return unit==='F'?`${toF(c)}°F`:`${c}°C`}
 function convertTempsInText(text,unit){if(!unit||unit==='C')return text;return text.replace(/(\d+)\s*[-–]\s*(\d+)\s*°C/g,(m,lo,hi)=>`${toF(+lo)}–${toF(+hi)}°F`).replace(/(\d+)\s*°C/g,(m,n)=>`${toF(+n)}°F`)}
 const AGENT_INGREDIENTS={
@@ -409,9 +429,125 @@ function buildBuiltInRecipe(id,prefs){
     steps:config.customSteps||resolveVariantSteps(config,prefs),
     notes:VARIANT_NOTES[id]||'',
     tags:config.tags,
-    isBaseline:true,
-    createdAt:'2026-02-08T00:00:00Z',updatedAt:new Date().toISOString()
+    isBuiltIn:true,
+    isBaseline:id===BASELINE_ID,
+    prefDriven:!(config.customIngredients||config.customSteps),
+    createdAt:BUILT_IN_RECIPE_CREATED_AT,updatedAt:new Date().toISOString()
   };
+}
+
+function isBuiltInRecipeId(id){return !!BUILT_IN_CONFIGS[id]}
+function deepClone(value){return JSON.parse(JSON.stringify(value))}
+function normalizeRecipeForCompare(recipe){
+  if(!recipe) return null;
+  const{createdAt,updatedAt,isBuiltIn,isBaseline,prefDriven,derivedFromBuiltInId,...rest}=recipe;
+  return rest;
+}
+function sameRecipeContent(a,b){return JSON.stringify(normalizeRecipeForCompare(a))===JSON.stringify(normalizeRecipeForCompare(b))}
+function upsertById(items,item){
+  if(!item?.id) return items;
+  const idx=items.findIndex(existing=>existing.id===item.id);
+  if(idx===-1) return [...items,item];
+  const next=[...items];
+  next[idx]={...next[idx],...item,createdAt:next[idx].createdAt||item.createdAt};
+  return next;
+}
+function upsertManyById(items,incoming){return incoming.reduce((acc,item)=>upsertById(acc,item),items)}
+function createCustomRecipe(recipe,{id=recipe?.id||uid(),name=recipe?.name,preserveId=true,derivedFromBuiltInId=null}={}){
+  const cloned=deepClone(recipe);
+  return {
+    ...cloned,
+    id:preserveId&&cloned.id?id:(id||uid()),
+    name:name??cloned.name,
+    isBuiltIn:false,
+    isBaseline:false,
+    prefDriven:false,
+    derivedFromBuiltInId:derivedFromBuiltInId??cloned.derivedFromBuiltInId??null,
+    createdAt:cloned.createdAt||new Date().toISOString(),
+    updatedAt:new Date().toISOString()
+  };
+}
+function coerceImportedRecipe(recipe,prefs){
+  if(!recipe?.name||!Array.isArray(recipe.ingredients)) return null;
+  if(isBuiltInRecipeId(recipe.id)){
+    const builtIn=buildBuiltInRecipe(recipe.id,prefs||{vanillaPreference:'paste',textureAgentPreference:'none'});
+    if(sameRecipeContent(recipe,builtIn)) return null;
+    return createCustomRecipe({...recipe,id:`customized-${recipe.id}`},{preserveId:true,derivedFromBuiltInId:recipe.id});
+  }
+  return createCustomRecipe(recipe,{preserveId:true});
+}
+function getStoredCustomRecipes(prefs){
+  const storedCustom=S.get(STORAGE_KEYS.customRecipes);
+  if(Array.isArray(storedCustom)) return storedCustom.map(r=>createCustomRecipe(r,{preserveId:true}));
+
+  const legacyRecipes=S.get(STORAGE_KEYS.legacyRecipes);
+  if(!Array.isArray(legacyRecipes)) return [];
+
+  return legacyRecipes.reduce((acc,recipe)=>{
+    if(isBuiltInRecipeId(recipe.id)){
+      const migrated=coerceImportedRecipe(recipe,prefs);
+      return migrated?upsertById(acc,migrated):acc;
+    }
+    return upsertById(acc,createCustomRecipe(recipe,{preserveId:true}));
+  },[]);
+}
+function materializeBuiltInRecipes(prefs){
+  return BUILT_IN_IDS.map(id=>buildBuiltInRecipe(id,prefs)).filter(Boolean);
+}
+function safeExternalUrl(url){
+  try{
+    const parsed=new URL(url);
+    return /^https?:$/.test(parsed.protocol)?parsed.toString():null;
+  }catch{
+    return null;
+  }
+}
+function inferVanillaFromRecipe(recipe){
+  const haystack=recipe?.ingredients?.map(ing=>`${ing.id||''} ${ing.name||''}`.toLowerCase()).join(' ')||'';
+  if(haystack.includes('vi-bean')||haystack.includes('vanilla bean')) return 'bean';
+  if(haystack.includes('vi-paste')||haystack.includes('vanilla bean paste')) return 'paste';
+  if(haystack.includes('vi-extract')||haystack.includes('vanilla extract')) return 'extract';
+  return null;
+}
+function inferTextureAgentFromRecipe(recipe){
+  const haystack=recipe?.ingredients?.map(ing=>`${ing.id||''} ${ing.name||''}`.toLowerCase()).join(' ')||'';
+  if(haystack.includes('ai-cs ')||haystack.includes('commercial ice cream stabilizer')) return 'commercial_stabilizer';
+  if(haystack.includes('ai-gg')||haystack.includes('guar gum')) return 'guar_gum';
+  if(haystack.includes('ai-xg')||haystack.includes('xanthan gum')) return 'xanthan_gum';
+  if(haystack.includes('ai-ts')||haystack.includes('tapioca starch')) return 'tapioca_starch';
+  if(haystack.includes('ai-cs2')||haystack.includes('cornstarch')) return 'cornstarch';
+  return 'none';
+}
+function normalizeBatch(batch){
+  return {...batch,id:batch.id||uid(),createdAt:batch.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};
+}
+function normalizeTempInput(value,unit){
+  const num=Number(value);
+  if(Number.isNaN(num)) return null;
+  return unit==='F'?toC(num):num;
+}
+function readTempC(temperature,key){
+  if(!temperature) return null;
+  if(temperature[`${key}C`]!=null) return temperature[`${key}C`];
+  if(temperature[key]==null) return null;
+  return temperature.unit==='F'?toC(temperature[key]):temperature[key];
+}
+function startOfWeek(value){
+  const date=parseDateValue(value)||new Date();
+  date.setHours(0,0,0,0);
+  const offset=(date.getDay()+6)%7;
+  date.setDate(date.getDate()-offset);
+  return date;
+}
+function weekKey(value){return localDateInputValue(startOfWeek(value))}
+function downloadJson(filename,data){
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=filename;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),0);
 }
 
 // ══════════════════════════════════════════════
@@ -419,54 +555,73 @@ function buildBuiltInRecipe(id,prefs){
 // ══════════════════════════════════════════════
 const S={
   get:(k)=>{try{return JSON.parse(localStorage.getItem(k))}catch{return null}},
-  set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))
+  set:(k,v)=>localStorage.setItem(k,JSON.stringify(v)),
+  del:(k)=>localStorage.removeItem(k)
 };
 
 function usePreferences(){
-  const[prefs,setPrefs]=useState(()=>S.get('icl-prefs'));
-  useEffect(()=>{if(prefs)S.set('icl-prefs',prefs)},[prefs]);
+  const[prefs,setPrefs]=useState(()=>S.get(STORAGE_KEYS.prefs));
+  useEffect(()=>{if(prefs)S.set(STORAGE_KEYS.prefs,prefs)},[prefs]);
   const save=(p)=>setPrefs(p);
   return{prefs,save,isSetup:!!prefs};
 }
 
 function useRecipes(prefs){
-  const[recipes,setRecipes]=useState(()=>{
-    const stored=S.get('icl-recipes');
-    const defaultPrefs=prefs||{vanillaPreference:'paste',textureAgentPreference:'none',defaultBatchSize:300};
-    if(stored){
-      // Update all built-in recipes in-place if prefs changed
-      let updated=prefs?stored.map(r=>BUILT_IN_CONFIGS[r.id]?buildBuiltInRecipe(r.id,prefs):r):stored;
-      // Add any new built-in recipes that existing users don't have yet
-      const existingIds=new Set(updated.map(r=>r.id));
-      const missing=BUILT_IN_IDS.filter(id=>!existingIds.has(id));
-      if(missing.length) updated=[...updated,...missing.map(id=>buildBuiltInRecipe(id,defaultPrefs))];
-      return updated;
-    }
-    return BUILT_IN_IDS.map(id=>buildBuiltInRecipe(id,defaultPrefs));
-  });
-  // Re-resolve all built-in recipes when prefs change
+  const defaultPrefs=prefs||{vanillaPreference:'paste',textureAgentPreference:'none',defaultBatchSize:300};
+  const[customRecipes,setCustomRecipes]=useState(()=>getStoredCustomRecipes(defaultPrefs));
+  const recipes=useMemo(()=>[...materializeBuiltInRecipes(defaultPrefs),...customRecipes],[defaultPrefs,customRecipes]);
   useEffect(()=>{
-    if(prefs) setRecipes(p=>p.map(r=>BUILT_IN_CONFIGS[r.id]?{...buildBuiltInRecipe(r.id,prefs),createdAt:r.createdAt}:r));
-  },[prefs?.vanillaPreference,prefs?.textureAgentPreference]);
-  useEffect(()=>S.set('icl-recipes',recipes),[recipes]);
+    S.set(STORAGE_KEYS.customRecipes,customRecipes);
+    S.del(STORAGE_KEYS.legacyRecipes);
+  },[customRecipes]);
   return{
     recipes,
-    addRecipe:(r)=>setRecipes(p=>[...p,{...r,id:uid(),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()}]),
-    updateRecipe:(id,u)=>setRecipes(p=>p.map(r=>r.id===id?{...r,...u,updatedAt:new Date().toISOString()}:r)),
-    deleteRecipe:(id)=>setRecipes(p=>p.filter(r=>r.id!==id)),
-    duplicateRecipe:(id)=>{setRecipes(p=>{const o=p.find(r=>r.id===id);if(!o)return p;const d={...JSON.parse(JSON.stringify(o)),id:uid(),name:o.name+' (copy)',isBaseline:false,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()};d.ingredients=d.ingredients.map(i=>({...i,id:uid()}));d.steps=d.steps.map(s=>({...s,id:uid()}));return[...p,d]})},
-    importRecipe:(r)=>setRecipes(p=>[...p,{...r,id:r.id||uid(),createdAt:r.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()}]),
+    addRecipe:(recipe)=>{
+      const next=createCustomRecipe(recipe,{preserveId:!!recipe?.id});
+      setCustomRecipes(prev=>upsertById(prev,next));
+      return next.id;
+    },
+    updateRecipe:(id,updates)=>{
+      if(isBuiltInRecipeId(id)) return null;
+      setCustomRecipes(prev=>prev.map(recipe=>recipe.id===id?{...recipe,...updates,isBuiltIn:false,prefDriven:false,updatedAt:new Date().toISOString()}:recipe));
+      return id;
+    },
+    deleteRecipe:(id)=>{
+      if(isBuiltInRecipeId(id)) return;
+      setCustomRecipes(prev=>prev.filter(recipe=>recipe.id!==id));
+    },
+    duplicateRecipe:(id)=>{
+      const source=recipes.find(recipe=>recipe.id===id);
+      if(!source) return null;
+      const copy=createCustomRecipe(source,{id:uid(),preserveId:false,name:`${source.name} (copy)`,derivedFromBuiltInId:source.isBuiltIn?source.id:source.derivedFromBuiltInId||null});
+      setCustomRecipes(prev=>upsertById(prev,copy));
+      return copy.id;
+    },
+    importRecipe:(recipe,options={})=>{
+      const next=coerceImportedRecipe(recipe,options.prefsSnapshot||defaultPrefs);
+      if(!next) return null;
+      setCustomRecipes(prev=>upsertById(prev,next));
+      return next.id;
+    },
+    importRecipes:(items,options={})=>{
+      const incoming=(items||[]).map(recipe=>coerceImportedRecipe(recipe,options.prefsSnapshot||defaultPrefs)).filter(Boolean);
+      if(!incoming.length) return [];
+      setCustomRecipes(prev=>upsertManyById(prev,incoming));
+      return incoming.map(recipe=>recipe.id);
+    },
+    customRecipes,
   };
 }
 
 function useBatches(){
-  const[batches,setBatches]=useState(()=>S.get('icl-batches')||[]);
-  useEffect(()=>S.set('icl-batches',batches),[batches]);
+  const[batches,setBatches]=useState(()=>S.get(STORAGE_KEYS.batches)||[]);
+  useEffect(()=>S.set(STORAGE_KEYS.batches,batches),[batches]);
   return{
     batches,
-    addBatch:(b)=>setBatches(p=>[...p,{...b,id:uid(),createdAt:new Date().toISOString()}]),
-    updateBatch:(id,u)=>setBatches(p=>p.map(b=>b.id===id?{...b,...u}:b)),
+    addBatch:(batch)=>{const next=normalizeBatch(batch);setBatches(prev=>upsertById(prev,next));return next.id},
+    updateBatch:(id,updates)=>setBatches(prev=>prev.map(batch=>batch.id===id?{...batch,...updates,updatedAt:new Date().toISOString()}:batch)),
     deleteBatch:(id)=>setBatches(p=>p.filter(b=>b.id!==id)),
+    importBatches:(incoming)=>setBatches(prev=>upsertManyById(prev,(incoming||[]).map(normalizeBatch))),
   };
 }
 
@@ -601,7 +756,7 @@ function RecipeCard({recipe,batches,onClick}){
 
 function RecipeList({recipes,batches,onSelect,onAdd}){
   const[filter,setFilter]=useState('all');const[sort,setSort]=useState('newest');const[search,setSearch]=useState('');
-  const filtered=useMemo(()=>{let r=[...recipes];if(filter!=='all')r=r.filter(x=>x.category===filter);if(search){const s=search.toLowerCase();r=r.filter(x=>x.name.toLowerCase().includes(s)||x.tags?.some(t=>t.toLowerCase().includes(s)))}switch(sort){case'name':r.sort((a,b)=>a.name.localeCompare(b.name));break;case'rating':r.sort((a,b)=>avgRating(batches,b.id)-avgRating(batches,a.id));break;case'most-made':r.sort((a,b)=>batchCount(batches,b.id)-batchCount(batches,a.id));break;default:r.sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt))}return r},[recipes,batches,filter,sort,search]);
+  const filtered=useMemo(()=>{let r=[...recipes];if(filter!=='all')r=r.filter(x=>x.category===filter);if(search){const s=search.toLowerCase();r=r.filter(x=>x.name.toLowerCase().includes(s)||x.tags?.some(t=>t.toLowerCase().includes(s)))}switch(sort){case'name':r.sort((a,b)=>a.name.localeCompare(b.name));break;case'rating':r.sort((a,b)=>avgRating(batches,b.id)-avgRating(batches,a.id));break;case'most-made':r.sort((a,b)=>batchCount(batches,b.id)-batchCount(batches,a.id));break;default:r.sort((a,b)=>dateMs(b.createdAt)-dateMs(a.createdAt))}return r},[recipes,batches,filter,sort,search]);
   return(<div className="pb-24">
     <div className="mb-4"><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search recipes or tags..." className="w-full px-4 py-2.5 bg-white rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-accent/30"/></div>
     <div className="flex gap-2 mb-3 overflow-x-auto pb-1 -mx-1 px-1">{['all',...CATEGORIES].map(c=>(<button key={c} onClick={()=>setFilter(c)} className={`px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${filter===c?'text-white':'bg-gray-100 text-gray-600'}`} style={filter===c?{background:c==='all'?'#FF5722':CAT_COLORS[c]}:{}}>{c==='all'?'All':`${CAT_EMOJI[c]} ${c}`}</button>))}</div>
@@ -620,6 +775,7 @@ function RecipeDetail({recipe,batches,onBack,onEdit,onDuplicate,onDelete,onCook,
   const avg=avgRating(batches,recipe.id);const count=batchCount(batches,recipe.id);
   const menuRef=useRef(null);
   const tempUnit=prefs?.tempUnit||'C';
+  const sourceUrl=safeExternalUrl(recipe.source?.url);
   const batchMult=scale/(recipe.servings||300);
   const yolkRef=Math.round(YOLK_REF_G*batchMult);
   const yolkMult=yolkEdited&&recipe.isBaseline?(yolkWeight/yolkRef):1;
@@ -639,15 +795,14 @@ function RecipeDetail({recipe,batches,onBack,onEdit,onDuplicate,onDelete,onCook,
     <BackBtn onClick={onBack}/>
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4" style={{borderTopWidth:4,borderTopColor:CAT_COLORS[recipe.category]}}>
       <div className="flex items-start justify-between mb-3">
-        <div className="flex-1 min-w-0"><h2 className="text-xl font-bold text-gray-900 mb-1">{recipe.name}</h2><div className="flex items-center gap-2 flex-wrap"><CatBadge category={recipe.category}/>{recipe.isBaseline&&<PrefsGear prefs={prefs} onClick={onOpenPrefs}/>}</div></div>
+        <div className="flex-1 min-w-0"><h2 className="text-xl font-bold text-gray-900 mb-1">{recipe.name}</h2><div className="flex items-center gap-2 flex-wrap"><CatBadge category={recipe.category}/>{recipe.prefDriven&&<PrefsGear prefs={prefs} onClick={onOpenPrefs}/>}</div></div>
         <div className="relative flex-shrink-0 ml-2" ref={menuRef}>
           <button onClick={()=>setShowMenu(!showMenu)} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500 text-lg">⋯</button>
           {showMenu&&(<div className="absolute right-0 top-11 bg-white rounded-xl shadow-lg border border-gray-100 py-1.5 w-44 z-30 fade-in">
-            <button onClick={()=>{setShowMenu(false);onEdit()}} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2"><span>✏️</span> Edit recipe</button>
+            <button onClick={()=>{setShowMenu(false);onEdit()}} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2"><span>✏️</span> {recipe.isBuiltIn?'Customize copy':'Edit recipe'}</button>
             <button onClick={()=>{setShowMenu(false);onDuplicate()}} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2"><span>📋</span> Duplicate</button>
             <button onClick={()=>{setShowMenu(false);onExport()}} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-2"><span>📤</span> Export JSON</button>
-            <hr className="my-1 border-gray-100"/>
-            <button onClick={()=>{setShowMenu(false);setShowDel(true)}} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 text-red-500 flex items-center gap-2"><span>🗑️</span> Delete</button>
+            {!recipe.isBuiltIn&&(<><hr className="my-1 border-gray-100"/><button onClick={()=>{setShowMenu(false);setShowDel(true)}} className="w-full text-left px-4 py-2.5 text-sm hover:bg-red-50 text-red-500 flex items-center gap-2"><span>🗑️</span> Delete</button></>)}
           </div>)}
         </div>
       </div>
@@ -676,21 +831,21 @@ function RecipeDetail({recipe,batches,onBack,onEdit,onDuplicate,onDelete,onCook,
     {/* Steps */}
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4">
       <h3 className="font-bold text-gray-900 mb-3">Steps</h3>
-      <div className="space-y-4">{recipe.steps.sort((a,b)=>a.order-b.order).map((step,i)=>(<div key={step.id} className="flex gap-3"><div className="w-7 h-7 rounded-full bg-accent/10 text-accent flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">{i+1}</div><div className="flex-1"><div className="font-semibold text-gray-900 mb-0.5">{step.title}</div><p className="text-sm text-gray-600 leading-relaxed">{convertTempsInText(step.instruction,tempUnit)}</p>{step.timerSeconds&&<span className="inline-flex items-center gap-1 text-xs text-accent font-semibold mt-1">⏱ {Math.round(step.timerSeconds/60)} min</span>}</div></div>))}</div>
+      <div className="space-y-4">{[...recipe.steps].sort((a,b)=>a.order-b.order).map((step,i)=>(<div key={step.id} className="flex gap-3"><div className="w-7 h-7 rounded-full bg-accent/10 text-accent flex items-center justify-center text-sm font-bold flex-shrink-0 mt-0.5">{i+1}</div><div className="flex-1"><div className="font-semibold text-gray-900 mb-0.5">{step.title}</div><p className="text-sm text-gray-600 leading-relaxed">{convertTempsInText(step.instruction,tempUnit)}</p>{step.timerSeconds&&<span className="inline-flex items-center gap-1 text-xs text-accent font-semibold mt-1">⏱ {Math.round(step.timerSeconds/60)} min</span>}</div></div>))}</div>
     </div>
     {recipe.notes&&(<div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4"><h3 className="font-bold text-gray-900 mb-2">Notes</h3><p className="text-sm text-gray-600 whitespace-pre-line">{recipe.notes}</p></div>)}
-    {recipe.source?.rawText&&(<div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4"><h3 className="font-bold text-gray-900 mb-2">Source</h3>{recipe.source.type==='url'&&recipe.source.url&&<a href={recipe.source.url} target="_blank" className="text-accent text-sm underline break-all">{recipe.source.url}</a>}{recipe.source.type==='book'&&<p className="text-sm text-gray-600">{recipe.source.bookTitle} — {recipe.source.bookPage}</p>}<p className="text-sm text-gray-500 mt-1 whitespace-pre-line">{recipe.source.rawText}</p></div>)}
+    {recipe.source?.rawText&&(<div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4"><h3 className="font-bold text-gray-900 mb-2">Source</h3>{recipe.source.type==='url'&&sourceUrl&&<a href={sourceUrl} target="_blank" rel="noopener noreferrer" className="text-accent text-sm underline break-all">{sourceUrl}</a>}{recipe.source.type==='url'&&!sourceUrl&&recipe.source.url&&<p className="text-sm text-gray-600 break-all">{recipe.source.url}</p>}{recipe.source.type==='book'&&<p className="text-sm text-gray-600">{recipe.source.bookTitle} — {recipe.source.bookPage}</p>}<p className="text-sm text-gray-500 mt-1 whitespace-pre-line">{recipe.source.rawText}</p></div>)}
     {recipe.tags?.length>0&&(<div className="flex flex-wrap gap-2 mb-4">{recipe.tags.map(t=><span key={t} className="text-xs bg-gray-100 text-gray-600 px-3 py-1 rounded-full">#{t}</span>)}</div>)}
     <div className="flex gap-3">
       <button onClick={onCook} className="flex-1 py-3 bg-accent text-white rounded-xl font-bold text-base hover:opacity-90 active:scale-[0.98] transition-all">🔥 Start Cooking</button>
       <button onClick={onViewBatches} className="px-5 py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200">📋 Batches ({count})</button>
     </div>
-    <Confirm open={showDel} onClose={()=>setShowDel(false)} onConfirm={onDelete} title="Delete recipe?" message={`"${recipe.name}" will be permanently removed.`}/>
+    {!recipe.isBuiltIn&&<Confirm open={showDel} onClose={()=>setShowDel(false)} onConfirm={onDelete} title="Delete recipe?" message={`"${recipe.name}" will be permanently removed.`}/>}
   </div>);
 }
 
-function RecipeForm({recipe,onSave,onBack}){
-  const isEdit=!!recipe;
+function RecipeForm({recipe,onSave,onBack,customizingBuiltIn}){
+  const isEdit=!!recipe&&!customizingBuiltIn;
   const[mode,setMode]=useState('structured');
   const[name,setName]=useState(recipe?.name||'');const[category,setCategory]=useState(recipe?.category||'traditional');
   const[servings,setServings]=useState(recipe?.servings||300);
@@ -714,7 +869,7 @@ function RecipeForm({recipe,onSave,onBack}){
   const updStep=(id,f,v)=>setSteps(p=>p.map(s=>s.id===id?{...s,[f]:v}:s));
   const handleSave=()=>{if(!name.trim())return alert('Recipe name is required');onSave({...(recipe||{}),name:name.trim(),category,servings,ingredients:ingredients.filter(i=>i.name.trim()),steps:steps.filter(s=>s.instruction.trim()).map((s,i)=>({...s,order:i+1})),notes,tags:tags.split(',').map(t=>t.trim()).filter(Boolean),source:{type:sourceType,url:sourceUrl,bookTitle:sourceBook,bookPage:sourcePage,rawText},calculatedStats:{fatPercent:fatPct?+fatPct:null,sweetenerPercent:sweetPct?+sweetPct:null,totalSolidsPercent:solidsPct?+solidsPct:null,estimatedCostYen:costYen?+costYen:null}})};
   return(<div className="pb-20 fade-in">
-    <BackBtn onClick={onBack}/><h2 className="text-xl font-bold mb-4">{isEdit?'Edit Recipe':'New Recipe'}</h2>
+    <BackBtn onClick={onBack}/><h2 className="text-xl font-bold mb-4">{customizingBuiltIn?'Customize Recipe':isEdit?'Edit Recipe':'New Recipe'}</h2>
     <Tabs tabs={[{key:'structured',label:'Structured'},{key:'paste',label:'Paste & Structure'}]} active={mode} onChange={setMode}/>
     {mode==='paste'&&(<div className="mb-4"><label className="text-sm font-semibold text-gray-700 mb-1 block">Paste raw recipe text</label><textarea value={rawText} onChange={e=>setRawText(e.target.value)} rows={6} className="w-full px-3 py-2 border rounded-xl text-sm focus:ring-2 focus:ring-accent/30 focus:outline-none" placeholder="Paste a recipe from a URL, book, or conversation with Claude..."/></div>)}
     <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4 space-y-3">
@@ -734,7 +889,7 @@ function RecipeForm({recipe,onSave,onBack}){
     </div>
     <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4"><h3 className="font-bold text-gray-900 mb-3">Calculated Stats (optional)</h3><div className="grid grid-cols-2 gap-3"><div><label className="text-xs text-gray-500">Fat %</label><input type="number" value={fatPct} onChange={e=>setFatPct(e.target.value)} className="w-full px-2 py-1.5 border rounded-lg text-sm"/></div><div><label className="text-xs text-gray-500">Sweetener %</label><input type="number" value={sweetPct} onChange={e=>setSweetPct(e.target.value)} className="w-full px-2 py-1.5 border rounded-lg text-sm"/></div><div><label className="text-xs text-gray-500">Total Solids %</label><input type="number" value={solidsPct} onChange={e=>setSolidsPct(e.target.value)} className="w-full px-2 py-1.5 border rounded-lg text-sm"/></div><div><label className="text-xs text-gray-500">Cost ¥</label><input type="number" value={costYen} onChange={e=>setCostYen(e.target.value)} className="w-full px-2 py-1.5 border rounded-lg text-sm"/></div></div></div>
     <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4 space-y-3"><div><label className="text-sm font-semibold text-gray-700 mb-1 block">Notes</label><textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={3} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div><label className="text-sm font-semibold text-gray-700 mb-1 block">Tags (comma separated)</label><input value={tags} onChange={e=>setTags(e.target.value)} placeholder="vanilla, custard-base" className="w-full px-3 py-2 border rounded-xl text-sm"/></div></div>
-    <button onClick={handleSave} className="w-full py-3 bg-accent text-white rounded-xl font-bold text-base hover:opacity-90">{isEdit?'Save Changes':'Create Recipe'}</button>
+    <button onClick={handleSave} className="w-full py-3 bg-accent text-white rounded-xl font-bold text-base hover:opacity-90">{customizingBuiltIn?'Save Custom Copy':isEdit?'Save Changes':'Create Recipe'}</button>
   </div>);
 }
 
@@ -749,8 +904,9 @@ function RecipesTab({recipes,batches,nav,addRecipe,updateRecipe,deleteRecipe,dup
   const[showImport,setShowImport]=useState(false);const[showAddMenu,setShowAddMenu]=useState(false);
   const[showPrefs,setShowPrefs]=useState(false);
   const selected=recipes.find(r=>r.id===selectedId);const editing=editId?recipes.find(r=>r.id===editId):null;
-  if(view==='detail'&&selected)return(<><RecipeDetail recipe={selected} batches={batches} prefs={prefs} onOpenPrefs={()=>setShowPrefs(true)} onBack={()=>setView('list')} onEdit={()=>{setEditId(selected.id);setView('form')}} onDuplicate={()=>{duplicateRecipe(selected.id);setView('list')}} onDelete={()=>{deleteRecipe(selected.id);setView('list')}} onCook={()=>nav('cook-active',{recipeId:selected.id})} onViewBatches={()=>nav('log',{filter:selected.id})} onExport={()=>{const blob=new Blob([JSON.stringify(selected,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`${selected.name.replace(/\s+/g,'-')}.json`;a.click()}}/><PreferencesSheet open={showPrefs} onClose={()=>setShowPrefs(false)} prefs={prefs} onSave={onPrefsChange}/></>);
-  if(view==='form')return(<RecipeForm recipe={editing} onBack={()=>{setView(editing?'detail':'list');setEditId(null)}} onSave={(data)=>{if(editing){updateRecipe(editing.id,data);setView('detail')}else{addRecipe(data);setView('list')}setEditId(null)}}/>);
+  const customizingBuiltIn=!!editing?.isBuiltIn;
+  if(view==='detail'&&selected)return(<><RecipeDetail key={selected.id} recipe={selected} batches={batches} prefs={prefs} onOpenPrefs={()=>setShowPrefs(true)} onBack={()=>setView('list')} onEdit={()=>{setEditId(selected.id);setView('form')}} onDuplicate={()=>{const newId=duplicateRecipe(selected.id);if(newId)setSelectedId(newId);setView(newId?'detail':'list')}} onDelete={()=>{deleteRecipe(selected.id);setView('list')}} onCook={()=>nav('cook-active',{recipeId:selected.id})} onViewBatches={()=>nav('log',{filter:selected.id})} onExport={()=>downloadJson(`${selected.name.replace(/\s+/g,'-')}.json`,selected)}/><PreferencesSheet open={showPrefs} onClose={()=>setShowPrefs(false)} prefs={prefs} onSave={onPrefsChange}/></>);
+  if(view==='form')return(<RecipeForm key={`${editId||'new'}-${customizingBuiltIn?'copy':'edit'}`} recipe={editing} customizingBuiltIn={customizingBuiltIn} onBack={()=>{setView(editing?'detail':'list');setEditId(null)}} onSave={(data)=>{if(editing&&!customizingBuiltIn){updateRecipe(editing.id,data);setSelectedId(editing.id);setView('detail')}else{const newId=addRecipe({...data,id:uid(),derivedFromBuiltInId:customizingBuiltIn?editing.id:data.derivedFromBuiltInId||null});setSelectedId(newId);setView('detail')}setEditId(null)}}/>);
   return(<><RecipeList recipes={recipes} batches={batches} onSelect={id=>{setSelectedId(id);setView('detail')}} onAdd={()=>setShowAddMenu(true)}/>{showAddMenu&&(<div className="fixed inset-0 z-40" onClick={()=>setShowAddMenu(false)}><div className="fixed inset-0 bg-black/20"/><div className="fixed bottom-28 right-5 bg-white rounded-2xl shadow-xl p-2 z-50 fade-in w-52" onClick={e=>e.stopPropagation()}><button onClick={()=>{setShowAddMenu(false);setEditId(null);setView('form')}} className="w-full px-4 py-3 text-left text-sm font-semibold hover:bg-gray-50 rounded-xl">📝 New Recipe</button><button onClick={()=>{setShowAddMenu(false);setShowImport(true)}} className="w-full px-4 py-3 text-left text-sm font-semibold hover:bg-gray-50 rounded-xl">📥 Import JSON</button></div></div>)}<JsonImportModal open={showImport} onClose={()=>setShowImport(false)} onImport={importRecipe}/></>);
 }
 
@@ -759,8 +915,24 @@ function RecipesTab({recipes,batches,nav,addRecipe,updateRecipe,deleteRecipe,dup
 // ══════════════════════════════════════════════
 function CookTimer({seconds,onDone}){
   const[remaining,setRemaining]=useState(seconds);const[running,setRunning]=useState(false);const intervalRef=useRef(null);
-  useEffect(()=>{if(running&&remaining>0){intervalRef.current=setInterval(()=>{setRemaining(p=>{if(p<=1){clearInterval(intervalRef.current);setRunning(false);playBeep();onDone?.();return 0}return p-1})},1000)}return()=>clearInterval(intervalRef.current)},[running]);
-  const mins=Math.floor(remaining/60);const secs=remaining%60;const pct=remaining/seconds;const r=54,circ=2*Math.PI*r;
+  useEffect(()=>{clearInterval(intervalRef.current);setRemaining(seconds);setRunning(false);return()=>clearInterval(intervalRef.current)},[seconds]);
+  useEffect(()=>{
+    if(!running||remaining<=0) return;
+    intervalRef.current=setInterval(()=>{
+      setRemaining(prev=>{
+        if(prev<=1){
+          clearInterval(intervalRef.current);
+          setRunning(false);
+          playBeep();
+          onDone?.();
+          return 0;
+        }
+        return prev-1;
+      });
+    },1000);
+    return()=>clearInterval(intervalRef.current);
+  },[running,remaining,onDone]);
+  const mins=Math.floor(remaining/60);const secs=remaining%60;const pct=seconds>0?remaining/seconds:0;const r=54,circ=2*Math.PI*r;
   return(<div className="flex flex-col items-center gap-3 my-4"><div className={`relative w-36 h-36 ${running&&remaining>0?'timer-pulse':''}`}><svg width="144" height="144" className="transform -rotate-90"><circle cx="72" cy="72" r={r} fill="none" stroke="#374151" strokeWidth="8"/><circle cx="72" cy="72" r={r} fill="none" stroke={remaining===0?'#22C55E':'#FF5722'} strokeWidth="8" strokeDasharray={circ} strokeDashoffset={circ*(1-pct)} strokeLinecap="round" className="transition-all duration-1000 ease-linear"/></svg><div className="absolute inset-0 flex items-center justify-center"><span className="text-3xl font-mono font-bold text-white">{String(mins).padStart(2,'0')}:{String(secs).padStart(2,'0')}</span></div></div><div className="flex gap-3">{remaining>0?(<button onClick={()=>setRunning(!running)} className={`px-8 py-3 rounded-xl font-bold text-base ${running?'bg-amber-500 text-white':'bg-accent text-white'}`}>{running?'⏸ Pause':'▶ Start'}</button>):(<div className="px-8 py-3 rounded-xl bg-green-500 text-white font-bold text-base">✓ Done!</div>)}<button onClick={()=>{setRemaining(seconds);setRunning(false);clearInterval(intervalRef.current)}} className="px-4 py-3 rounded-xl bg-gray-700 text-gray-300 font-semibold">↻</button></div></div>);
 }
 
@@ -804,7 +976,7 @@ function CookMode({recipe,onExit,onLogBatch,prefs,onOpenPrefs,batchScale,yolkWei
       <span className="text-sm text-gray-400 font-medium truncate mx-2">{recipe.name}</span>
       <div className="flex items-center gap-1">
         <button onClick={()=>setShowNotes(true)} className="text-gray-400 hover:text-white text-sm min-w-[44px] min-h-[48px] flex items-center justify-center relative">📝{notes&&<span className="absolute -top-0.5 -right-0.5 w-2 h-2 bg-accent rounded-full"/>}</button>
-        {prefs&&<PrefsGear prefs={prefs} onClick={onOpenPrefs} dark/>}
+        {recipe.prefDriven&&prefs&&<PrefsGear prefs={prefs} onClick={onOpenPrefs} dark/>}
         <button onClick={()=>setShowIngredients(true)} className="text-accent font-semibold text-sm min-w-[48px] min-h-[48px] flex items-center justify-end">📋</button>
       </div>
     </div>
@@ -845,7 +1017,7 @@ function CookTab({recipes,batches,nav,initialRecipeId,onCookingChange,prefs,onPr
 // ══════════════════════════════════════════════
 function BatchCard({batch,recipe,onClick}){
   return(<div onClick={onClick} className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 cursor-pointer hover:shadow-md transition-all fade-in" style={{borderLeftWidth:4,borderLeftColor:recipe?CAT_COLORS[recipe.category]:'#888'}}>
-    <div className="flex items-start justify-between mb-2"><div><div className="text-xs text-gray-400 font-medium mb-0.5">{fmt(batch.date)}</div><h3 className="font-bold text-gray-900">{recipe?.name||'Unknown recipe'}</h3></div><div className="flex items-center gap-2 flex-wrap justify-end">{batch.cafeWorthy&&<CafeBadge/>}{recipe&&<CatBadge category={recipe.category} small/>}</div></div>
+    <div className="flex items-start justify-between mb-2"><div><div className="text-xs text-gray-400 font-medium mb-0.5">{fmt(batch.date||batch.createdAt)}</div><h3 className="font-bold text-gray-900">{recipe?.name||'Unknown recipe'}</h3></div><div className="flex items-center gap-2 flex-wrap justify-end">{batch.cafeWorthy&&<CafeBadge/>}{recipe&&<CatBadge category={recipe.category} small/>}</div></div>
     <div className="flex items-center gap-2 flex-wrap">
       <Stars rating={batch.ratings?.overall||0} size={14}/>
       {batch.photoUrl&&<span className="text-xs text-gray-400">📷</span>}
@@ -858,8 +1030,11 @@ function BatchCard({batch,recipe,onClick}){
 
 function BatchForm({recipes,editBatch,initialRecipeId,onSave,onBack,prefs,initialCookNotes,initialYolkWeightG,initialScaledFromBatchMl}){
   const isEdit=!!editBatch;
+  const tempUnit=prefs?.tempUnit||editBatch?.temperature?.unit||'C';
+  const initialCustardTemp=(()=>{const value=readTempC(editBatch?.temperature,'custardTemp');return value==null?'':(tempUnit==='F'?toF(value):value)})();
+  const initialPreChurnTemp=(()=>{const value=readTempC(editBatch?.temperature,'preChurnTemp');return value==null?'':(tempUnit==='F'?toF(value):value)})();
   const[recipeId,setRecipeId]=useState(editBatch?.recipeId||initialRecipeId||'');
-  const[date,setDate]=useState(editBatch?.date||new Date().toISOString().split('T')[0]);
+  const[date,setDate]=useState(editBatch?.date||localDateInputValue());
   const[modifications,setModifications]=useState(editBatch?.modifications||'');
   const[overall,setOverall]=useState(editBatch?.ratings?.overall||0);
   const[texture,setTexture]=useState(editBatch?.ratings?.texture||0);
@@ -871,22 +1046,28 @@ function BatchForm({recipes,editBatch,initialRecipeId,onSave,onBack,prefs,initia
   const[churningNotes,setChurningNotes]=useState(editBatch?.churningNotes||'');
   const[flavorNotes,setFlavorNotes]=useState(editBatch?.flavorNotes||(initialCookNotes||''));
   const[textureNotes,setTextureNotes]=useState(editBatch?.textureNotes||'');
-  const[custardTemp,setCustardTemp]=useState(editBatch?.temperature?.custardTemp||'');
-  const[preChurnTemp,setPreChurnTemp]=useState(editBatch?.temperature?.preChurnTemp||'');
+  const[custardTemp,setCustardTemp]=useState(initialCustardTemp);
+  const[preChurnTemp,setPreChurnTemp]=useState(initialPreChurnTemp);
   const[photoUrl,setPhotoUrl]=useState(editBatch?.photoUrl||null);
   const fileRef=useRef(null);
+  const selectedRecipe=recipes.find(recipe=>recipe.id===recipeId);
+  const recipeChanged=!!editBatch&&editBatch.recipeId!==recipeId;
   const handlePhoto=(e)=>{const file=e.target.files?.[0];if(!file)return;const reader=new FileReader();reader.onload=(ev)=>{const img=new Image();img.onload=()=>{const max=800;let w=img.width,h=img.height;if(w>max){h=h*(max/w);w=max}if(h>max){w=w*(max/h);h=max}const c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);setPhotoUrl(c.toDataURL('image/jpeg',0.7))};img.src=ev.target.result};reader.readAsDataURL(file)};
-  const handleSave=()=>{if(!recipeId)return alert('Please select a recipe');if(!overall)return alert('Please rate the batch overall');onSave({...(editBatch||{}),recipeId,date,modifications,cafeWorthy,ratings:{overall,texture,sweetness,scoopability,flavor},churningTime:churningTime?+churningTime:null,churningNotes,flavorNotes,textureNotes,temperature:{custardTemp:custardTemp?+custardTemp:null,preChurnTemp:preChurnTemp?+preChurnTemp:null},photoUrl,vanillaUsed:editBatch?.vanillaUsed||(prefs?.vanillaPreference||null),textureAgentUsed:editBatch?.textureAgentUsed||(prefs?.textureAgentPreference||null),yolkWeightG:editBatch?.yolkWeightG||initialYolkWeightG||null,scaledFromBatchMl:editBatch?.scaledFromBatchMl||initialScaledFromBatchMl||300})};
+  const handleSave=()=>{
+    if(!recipeId)return alert('Please select a recipe');
+    if(!overall)return alert('Please rate the batch overall');
+    onSave({...(editBatch||{}),recipeId,date,modifications,cafeWorthy,ratings:{overall,texture,sweetness,scoopability,flavor},churningTime:churningTime?+churningTime:null,churningNotes,flavorNotes,textureNotes,temperature:{unit:tempUnit,custardTempC:custardTemp!==''?normalizeTempInput(custardTemp,tempUnit):null,preChurnTempC:preChurnTemp!==''?normalizeTempInput(preChurnTemp,tempUnit):null},photoUrl,vanillaUsed:!recipeChanged&&editBatch?.vanillaUsed!=null?editBatch.vanillaUsed:inferVanillaFromRecipe(selectedRecipe),textureAgentUsed:!recipeChanged&&editBatch?.textureAgentUsed!=null?editBatch.textureAgentUsed:inferTextureAgentFromRecipe(selectedRecipe),yolkWeightG:!recipeChanged&&editBatch?.yolkWeightG!=null?editBatch.yolkWeightG:initialYolkWeightG??null,scaledFromBatchMl:!recipeChanged&&editBatch?.scaledFromBatchMl!=null?editBatch.scaledFromBatchMl:initialScaledFromBatchMl??selectedRecipe?.servings??300});
+  };
   return(<div className="pb-20 fade-in">
     <BackBtn onClick={onBack}/><h2 className="text-xl font-bold mb-4">{isEdit?'Edit Batch':'Log Batch'}</h2>
     <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4 space-y-3">
       <div><label className="text-sm font-semibold text-gray-700 mb-1 block">Recipe *</label><select value={recipeId} onChange={e=>setRecipeId(e.target.value)} className="w-full px-3 py-2.5 border rounded-xl text-sm bg-white"><option value="">Select recipe...</option>{recipes.map(r=><option key={r.id} value={r.id}>{CAT_EMOJI[r.category]} {r.name}</option>)}</select></div>
       <div><label className="text-sm font-semibold text-gray-700 mb-1 block">Date</label><input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm"/></div>
       <div><label className="text-sm font-semibold text-gray-700 mb-1 block">Modifications</label><textarea value={modifications} onChange={e=>setModifications(e.target.value)} rows={2} placeholder="What did you change from the recipe?" className="w-full px-3 py-2 border rounded-xl text-sm"/></div>
-      {prefs&&<div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-2.5"><div className="text-xs font-semibold text-indigo-700 mb-0.5">Active preferences</div><div className="text-sm text-indigo-600">{VANILLA_LABELS[prefs.vanillaPreference]||'—'} vanilla · {AGENT_LABELS[prefs.textureAgentPreference]||'None'} texture agent</div></div>}
+      {prefs&&selectedRecipe?.prefDriven&&<div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-2.5"><div className="text-xs font-semibold text-indigo-700 mb-0.5">Active preferences</div><div className="text-sm text-indigo-600">{VANILLA_LABELS[prefs.vanillaPreference]||'—'} vanilla · {AGENT_LABELS[prefs.textureAgentPreference]||'None'} texture agent</div></div>}
     </div>
     <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4"><h3 className="font-bold text-gray-900 mb-3">Ratings</h3><RatingSlider value={overall} onChange={setOverall} label="Overall" labels={RATING_LABELS.overall}/><RatingSlider value={texture} onChange={setTexture} label="Texture" labels={RATING_LABELS.texture}/><RatingSlider value={sweetness} onChange={setSweetness} label="Sweetness" labels={RATING_LABELS.sweetness}/><RatingSlider value={scoopability} onChange={setScoopability} label="Scoopability" labels={RATING_LABELS.scoopability}/><RatingSlider value={flavor} onChange={setFlavor} label="Flavor" labels={RATING_LABELS.flavor}/><div className="flex items-center gap-3 mt-4 pt-3 border-t"><button onClick={()=>setCafeWorthy(!cafeWorthy)} className={`px-4 py-2.5 rounded-xl font-semibold text-sm transition-all ${cafeWorthy?'bg-green-500 text-white':'bg-gray-100 text-gray-500'}`}>☕ {cafeWorthy?'Cafe Worthy!':'Cafe Worthy?'}</button><span className="text-xs text-gray-400">Would you serve this at the cafe?</span></div></div>
-    <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4 space-y-3"><h3 className="font-bold text-gray-900 mb-1">Notes</h3><div><label className="text-xs text-gray-500">Flavor notes</label><textarea value={flavorNotes} onChange={e=>setFlavorNotes(e.target.value)} rows={2} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div><label className="text-xs text-gray-500">Texture notes</label><textarea value={textureNotes} onChange={e=>setTextureNotes(e.target.value)} rows={2} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div><label className="text-xs text-gray-500">Churning notes</label><textarea value={churningNotes} onChange={e=>setChurningNotes(e.target.value)} rows={2} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div className="flex gap-3"><div className="flex-1"><label className="text-xs text-gray-500">Churning time (min)</label><input type="number" value={churningTime} onChange={e=>setChurningTime(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div className="flex-1"><label className="text-xs text-gray-500">Custard {prefs?.tempUnit==='F'?'°F':'°C'}</label><input type="number" value={custardTemp} onChange={e=>setCustardTemp(e.target.value)} placeholder={prefs?.tempUnit==='F'?'180':'82'} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div className="flex-1"><label className="text-xs text-gray-500">Pre-churn {prefs?.tempUnit==='F'?'°F':'°C'}</label><input type="number" value={preChurnTemp} onChange={e=>setPreChurnTemp(e.target.value)} placeholder={prefs?.tempUnit==='F'?'50':'10'} className="w-full px-3 py-2 border rounded-xl text-sm"/></div></div></div>
+    <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4 space-y-3"><h3 className="font-bold text-gray-900 mb-1">Notes</h3><div><label className="text-xs text-gray-500">Flavor notes</label><textarea value={flavorNotes} onChange={e=>setFlavorNotes(e.target.value)} rows={2} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div><label className="text-xs text-gray-500">Texture notes</label><textarea value={textureNotes} onChange={e=>setTextureNotes(e.target.value)} rows={2} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div><label className="text-xs text-gray-500">Churning notes</label><textarea value={churningNotes} onChange={e=>setChurningNotes(e.target.value)} rows={2} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div className="flex gap-3"><div className="flex-1"><label className="text-xs text-gray-500">Churning time (min)</label><input type="number" value={churningTime} onChange={e=>setChurningTime(e.target.value)} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div className="flex-1"><label className="text-xs text-gray-500">Custard {tempUnit==='F'?'°F':'°C'}</label><input type="number" value={custardTemp} onChange={e=>setCustardTemp(e.target.value)} placeholder={tempUnit==='F'?'180':'82'} className="w-full px-3 py-2 border rounded-xl text-sm"/></div><div className="flex-1"><label className="text-xs text-gray-500">Pre-churn {tempUnit==='F'?'°F':'°C'}</label><input type="number" value={preChurnTemp} onChange={e=>setPreChurnTemp(e.target.value)} placeholder={tempUnit==='F'?'50':'10'} className="w-full px-3 py-2 border rounded-xl text-sm"/></div></div></div>
     <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 mb-4">
       <h3 className="font-bold text-gray-900 mb-2">Photo</h3>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" onChange={handlePhoto} className="hidden"/>
@@ -896,18 +1077,21 @@ function BatchForm({recipes,editBatch,initialRecipeId,onSave,onBack,prefs,initia
   </div>);
 }
 
-function BatchDetail({batch,recipe,allBatches,recipes,onBack,onEdit,onDelete,onCompare,onShare}){
+function BatchDetail({batch,recipe,allBatches,recipes,onBack,onEdit,onDelete,onCompare,onShare,prefs}){
   const[showDel,setShowDel]=useState(false);const dims=['overall','texture','sweetness','scoopability','flavor'];
+  const tempUnit=prefs?.tempUnit||batch.temperature?.unit||'C';
+  const custardTempC=readTempC(batch.temperature,'custardTemp');
+  const preChurnTempC=readTempC(batch.temperature,'preChurnTemp');
   return(<div className="pb-20 fade-in">
     <BackBtn onClick={onBack}/>
     <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4" style={{borderTopWidth:4,borderTopColor:recipe?CAT_COLORS[recipe.category]:'#888'}}>
-      <div className="flex items-start justify-between mb-3"><div><div className="text-sm text-gray-400 mb-0.5">{fmt(batch.date)}</div><h2 className="text-xl font-bold">{recipe?.name||'Unknown'}</h2>{recipe&&<CatBadge category={recipe.category}/>}</div><div className="flex gap-1"><button onClick={onEdit} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">✏️</button><button onClick={onShare} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">📤</button><button onClick={()=>setShowDel(true)} className="p-2 rounded-lg hover:bg-gray-100 text-red-400">🗑️</button></div></div>
+      <div className="flex items-start justify-between mb-3"><div><div className="text-sm text-gray-400 mb-0.5">{fmt(batch.date||batch.createdAt)}</div><h2 className="text-xl font-bold">{recipe?.name||'Unknown'}</h2>{recipe&&<CatBadge category={recipe.category}/>}</div><div className="flex gap-1"><button onClick={onEdit} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">✏️</button><button onClick={onShare} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500">📤</button><button onClick={()=>setShowDel(true)} className="p-2 rounded-lg hover:bg-gray-100 text-red-400">🗑️</button></div></div>
       <div className="flex items-center gap-2 mb-3 flex-wrap">{batch.cafeWorthy&&<CafeBadge/>}<PrefBadge vanilla={batch.vanillaUsed} agent={batch.textureAgentUsed}/></div>
       <div className="space-y-2 mb-4">{dims.map(d=>(<div key={d} className="flex items-center gap-2"><span className="text-xs text-gray-500 w-20 capitalize">{d}</span><div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden"><div className="h-full rounded-full transition-all" style={{width:`${(batch.ratings?.[d]||0)*20}%`,background:(batch.ratings?.[d]||0)>=4?'#22C55E':(batch.ratings?.[d]||0)>=3?'#F59E0B':'#EF4444'}}/></div><span className="text-xs font-bold w-12 text-right">{batch.ratings?.[d]?RATING_LABELS[d][batch.ratings[d]-1]:'—'}</span></div>))}</div>
     </div>
     {batch.photoUrl&&(<div className="mb-4"><img src={batch.photoUrl} alt="Batch photo" className="w-full rounded-2xl object-cover max-h-72 shadow-sm"/></div>)}
     {batch.modifications&&(<div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4"><h4 className="font-bold text-amber-800 text-sm mb-1">⚡ Modifications</h4><p className="text-sm text-amber-700">{batch.modifications}</p></div>)}
-    {(batch.flavorNotes||batch.textureNotes||batch.churningNotes)&&(<div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4 space-y-3">{batch.flavorNotes&&<div><h4 className="font-semibold text-sm text-gray-700">Flavor</h4><p className="text-sm text-gray-600">{batch.flavorNotes}</p></div>}{batch.textureNotes&&<div><h4 className="font-semibold text-sm text-gray-700">Texture</h4><p className="text-sm text-gray-600">{batch.textureNotes}</p></div>}{batch.churningNotes&&<div><h4 className="font-semibold text-sm text-gray-700">Churning</h4><p className="text-sm text-gray-600">{batch.churningNotes}</p></div>}{batch.churningTime&&<p className="text-xs text-gray-400">Churning time: {batch.churningTime} min</p>}{(batch.temperature?.custardTemp||batch.temperature?.preChurnTemp)&&(<p className="text-xs text-gray-400">{batch.temperature.custardTemp&&`Custard: ${batch.temperature.custardTemp}°C`}{batch.temperature.custardTemp&&batch.temperature.preChurnTemp&&' · '}{batch.temperature.preChurnTemp&&`Pre-churn: ${batch.temperature.preChurnTemp}°C`}</p>)}</div>)}
+    {(batch.flavorNotes||batch.textureNotes||batch.churningNotes||custardTempC!=null||preChurnTempC!=null)&&(<div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-4 space-y-3">{batch.flavorNotes&&<div><h4 className="font-semibold text-sm text-gray-700">Flavor</h4><p className="text-sm text-gray-600">{batch.flavorNotes}</p></div>}{batch.textureNotes&&<div><h4 className="font-semibold text-sm text-gray-700">Texture</h4><p className="text-sm text-gray-600">{batch.textureNotes}</p></div>}{batch.churningNotes&&<div><h4 className="font-semibold text-sm text-gray-700">Churning</h4><p className="text-sm text-gray-600">{batch.churningNotes}</p></div>}{batch.churningTime&&<p className="text-xs text-gray-400">Churning time: {batch.churningTime} min</p>}{(custardTempC!=null||preChurnTempC!=null)&&(<p className="text-xs text-gray-400">{custardTempC!=null&&`Custard: ${tempStr(custardTempC,tempUnit)}`}{custardTempC!=null&&preChurnTempC!=null&&' · '}{preChurnTempC!=null&&`Pre-churn: ${tempStr(preChurnTempC,tempUnit)}`}</p>)}</div>)}
     <button onClick={onCompare} className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold mb-2 hover:bg-gray-200">⚖️ Compare with another batch</button>
     <Confirm open={showDel} onClose={()=>setShowDel(false)} onConfirm={onDelete} title="Delete batch?" message="This batch log will be permanently removed."/>
   </div>);
@@ -917,7 +1101,7 @@ function BatchCompare({batch1,batch2,recipe1,recipe2,onBack}){
   const dims=['overall','texture','sweetness','scoopability','flavor'];
   return(<div className="pb-20 fade-in">
     <BackBtn onClick={onBack} label="Back to batch"/><h2 className="text-xl font-bold mb-4">⚖️ Compare Batches</h2>
-    <div className="grid grid-cols-2 gap-3 mb-4">{[{b:batch1,r:recipe1},{b:batch2,r:recipe2}].map(({b,r},i)=>(<div key={i} className="bg-white rounded-xl p-3 border shadow-sm" style={{borderTopWidth:3,borderTopColor:r?CAT_COLORS[r.category]:'#888'}}><div className="text-xs text-gray-400">{fmt(b.date)}</div><div className="font-bold text-sm">{r?.name||'Unknown'}</div><div className="flex gap-1 mt-1 flex-wrap">{b.cafeWorthy&&<CafeBadge/>}<PrefBadge vanilla={b.vanillaUsed} agent={b.textureAgentUsed}/></div></div>))}</div>
+    <div className="grid grid-cols-2 gap-3 mb-4">{[{b:batch1,r:recipe1},{b:batch2,r:recipe2}].map(({b,r},i)=>(<div key={i} className="bg-white rounded-xl p-3 border shadow-sm" style={{borderTopWidth:3,borderTopColor:r?CAT_COLORS[r.category]:'#888'}}><div className="text-xs text-gray-400">{fmt(b.date||b.createdAt)}</div><div className="font-bold text-sm">{r?.name||'Unknown'}</div><div className="flex gap-1 mt-1 flex-wrap">{b.cafeWorthy&&<CafeBadge/>}<PrefBadge vanilla={b.vanillaUsed} agent={b.textureAgentUsed}/></div></div>))}</div>
     <div className="bg-white rounded-2xl p-4 shadow-sm border mb-4"><h3 className="font-bold text-sm mb-3">Ratings Comparison</h3>{dims.map(d=>(<div key={d} className="mb-3"><div className="text-xs text-gray-500 capitalize mb-1">{d}</div><div className="flex items-center gap-2"><span className="text-xs font-bold w-5">{batch1.ratings?.[d]||0}</span><div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden flex"><div className="h-full bg-blue-400 rounded-l-full" style={{width:`${(batch1.ratings?.[d]||0)*20}%`}}/></div><div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden flex justify-end"><div className="h-full bg-purple-400 rounded-r-full" style={{width:`${(batch2.ratings?.[d]||0)*20}%`}}/></div><span className="text-xs font-bold w-5 text-right">{batch2.ratings?.[d]||0}</span></div></div>))}<div className="flex justify-center gap-6 text-xs text-gray-400 mt-2"><span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-400 inline-block"></span> Batch 1</span><span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-purple-400 inline-block"></span> Batch 2</span></div></div>
     {(batch1.modifications||batch2.modifications)&&(<div className="bg-white rounded-2xl p-4 shadow-sm border mb-4"><h3 className="font-bold text-sm mb-3">Modifications</h3><div className="grid grid-cols-2 gap-3 text-sm"><div className="text-gray-600">{batch1.modifications||<span className="text-gray-300 italic">None</span>}</div><div className="text-gray-600">{batch2.modifications||<span className="text-gray-300 italic">None</span>}</div></div></div>)}
   </div>);
@@ -929,11 +1113,11 @@ function LogTab({recipes,batches,addBatch,updateBatch,deleteBatch,nav,initialFil
   const[filterCafe,setFilterCafe]=useState('all');const[filterAgent,setFilterAgent]=useState('all');const[minRating,setMinRating]=useState(0);
   const[showFilters,setShowFilters]=useState(false);const[search,setSearch]=useState('');const[selectingCompare,setSelectingCompare]=useState(false);const[shareText,setShareText]=useState('');
   const selected=batches.find(b=>b.id===selectedId);const compareBatch=batches.find(b=>b.id===compareId);
-  const filtered=useMemo(()=>{let b=[...batches].sort((a,c)=>new Date(c.date)-new Date(a.date));if(filterCat!=='all')b=b.filter(x=>{const r=recipes.find(r=>r.id===x.recipeId);return r?.category===filterCat});if(filterRecipe)b=b.filter(x=>x.recipeId===filterRecipe);if(filterCafe!=='all')b=b.filter(x=>filterCafe==='yes'?x.cafeWorthy:!x.cafeWorthy);if(filterAgent!=='all')b=b.filter(x=>x.textureAgentUsed===filterAgent);if(minRating>0)b=b.filter(x=>(x.ratings?.overall||0)>=minRating);if(search){const s=search.toLowerCase();b=b.filter(x=>x.flavorNotes?.toLowerCase().includes(s)||x.textureNotes?.toLowerCase().includes(s)||x.modifications?.toLowerCase().includes(s))}return b},[batches,recipes,filterCat,filterRecipe,filterCafe,filterAgent,minRating,search]);
+  const filtered=useMemo(()=>{let b=[...batches].sort((a,c)=>dateMs(c.date||c.createdAt)-dateMs(a.date||a.createdAt));if(filterCat!=='all')b=b.filter(x=>{const r=recipes.find(r=>r.id===x.recipeId);return r?.category===filterCat});if(filterRecipe)b=b.filter(x=>x.recipeId===filterRecipe);if(filterCafe!=='all')b=b.filter(x=>filterCafe==='yes'?x.cafeWorthy:!x.cafeWorthy);if(filterAgent!=='all')b=b.filter(x=>x.textureAgentUsed===filterAgent);if(minRating>0)b=b.filter(x=>(x.ratings?.overall||0)>=minRating);if(search){const s=search.toLowerCase();b=b.filter(x=>x.flavorNotes?.toLowerCase().includes(s)||x.textureNotes?.toLowerCase().includes(s)||x.modifications?.toLowerCase().includes(s))}return b},[batches,recipes,filterCat,filterRecipe,filterCafe,filterAgent,minRating,search]);
 
   if(view==='add'||view==='edit')return(<BatchForm recipes={recipes} editBatch={view==='edit'?editBatch:null} initialRecipeId={initialRecipeId} initialCookNotes={view==='add'?initialCookNotes:''} initialYolkWeightG={initialYolkWeightG} initialScaledFromBatchMl={initialScaledFromBatchMl} prefs={prefs} onBack={()=>setView('list')} onSave={data=>{if(view==='edit')updateBatch(editBatch.id,data);else addBatch(data);setView('list')}}/>);
   if(view==='compare'&&selected&&compareBatch)return(<BatchCompare batch1={selected} batch2={compareBatch} recipe1={recipes.find(r=>r.id===selected.recipeId)} recipe2={recipes.find(r=>r.id===compareBatch.recipeId)} onBack={()=>{setView('detail');setCompareId(null)}}/>);
-  if(view==='detail'&&selected)return(<BatchDetail batch={selected} recipe={recipes.find(r=>r.id===selected.recipeId)} allBatches={batches} recipes={recipes} onBack={()=>setView('list')} onEdit={()=>{setEditBatch(selected);setView('edit')}} onDelete={()=>{deleteBatch(selected.id);setView('list')}} onCompare={()=>setSelectingCompare(true)} onShare={()=>{const recipe=recipes.find(r=>r.id===selected.recipeId);const batchNum=batches.filter(b=>new Date(b.createdAt)<=new Date(selected.createdAt)).length;const rBar=v=>'█'.repeat(v)+'░'.repeat(5-v);const text=`🍦 Ice Cream Lab — Batch #${batchNum}\n\nRecipe: ${recipe?.name||'Unknown'}\nCategory: ${recipe?.category||'?'}\nVanilla: ${VANILLA_LABELS[selected.vanillaUsed]||'—'} | Agent: ${AGENT_LABELS[selected.textureAgentUsed]||'None'}\nRating: ${'★'.repeat(selected.ratings.overall)}${'☆'.repeat(5-selected.ratings.overall)}\n\nTexture: ${rBar(selected.ratings.texture)} ${RATING_LABELS.texture[selected.ratings.texture-1]||''}\nSweetness: ${rBar(selected.ratings.sweetness)} ${RATING_LABELS.sweetness[selected.ratings.sweetness-1]||''}\nScoopability: ${rBar(selected.ratings.scoopability)} ${RATING_LABELS.scoopability[selected.ratings.scoopability-1]||''}\nFlavor: ${rBar(selected.ratings.flavor)} ${RATING_LABELS.flavor[selected.ratings.flavor-1]||''}\n${selected.modifications?`\nModifications: ${selected.modifications}`:''}${selected.flavorNotes?`\nNotes: ${selected.flavorNotes}`:''}\n\nCafe worthy? ${selected.cafeWorthy?'✅':'❌'}\n\n#IceCreamLab #HomemadeIceCream`;setShareText(text)}}/>);
+  if(view==='detail'&&selected)return(<BatchDetail key={selected.id} batch={selected} recipe={recipes.find(r=>r.id===selected.recipeId)} allBatches={batches} recipes={recipes} prefs={prefs} onBack={()=>setView('list')} onEdit={()=>{setEditBatch(selected);setView('edit')}} onDelete={()=>{deleteBatch(selected.id);setView('list')}} onCompare={()=>setSelectingCompare(true)} onShare={()=>{const recipe=recipes.find(r=>r.id===selected.recipeId);const ordered=[...batches].sort((a,b)=>dateMs(a.createdAt)-dateMs(b.createdAt));const batchNum=Math.max(ordered.findIndex(batch=>batch.id===selected.id)+1,1);const rBar=v=>'█'.repeat(v)+'░'.repeat(5-v);const text=`🍦 Ice Cream Lab — Batch #${batchNum}\n\nRecipe: ${recipe?.name||'Unknown'}\nCategory: ${recipe?.category||'?'}\nVanilla: ${VANILLA_LABELS[selected.vanillaUsed]||'—'} | Agent: ${AGENT_LABELS[selected.textureAgentUsed]||'None'}\nRating: ${'★'.repeat(selected.ratings.overall)}${'☆'.repeat(5-selected.ratings.overall)}\n\nTexture: ${rBar(selected.ratings.texture)} ${RATING_LABELS.texture[selected.ratings.texture-1]||''}\nSweetness: ${rBar(selected.ratings.sweetness)} ${RATING_LABELS.sweetness[selected.ratings.sweetness-1]||''}\nScoopability: ${rBar(selected.ratings.scoopability)} ${RATING_LABELS.scoopability[selected.ratings.scoopability-1]||''}\nFlavor: ${rBar(selected.ratings.flavor)} ${RATING_LABELS.flavor[selected.ratings.flavor-1]||''}\n${selected.modifications?`\nModifications: ${selected.modifications}`:''}${selected.flavorNotes?`\nNotes: ${selected.flavorNotes}`:''}\n\nCafe worthy? ${selected.cafeWorthy?'✅':'❌'}\n\n#IceCreamLab #HomemadeIceCream`;setShareText(text)}}/>);
   if(selectingCompare)return(<div className="pb-20 fade-in"><BackBtn onClick={()=>setSelectingCompare(false)} label="Cancel"/><h2 className="text-xl font-bold mb-4">Select batch to compare</h2><div className="grid gap-3">{batches.filter(b=>b.id!==selectedId).map(b=>(<BatchCard key={b.id} batch={b} recipe={recipes.find(r=>r.id===b.recipeId)} onClick={()=>{setCompareId(b.id);setSelectingCompare(false);setView('compare')}}/>))}</div></div>);
 
   return(<div className="pb-20">
@@ -960,7 +1144,7 @@ function LogTab({recipes,batches,addBatch,updateBatch,deleteBatch,nav,initialFil
 function HeatMap({batches}){
   const today=new Date();const weeks=20;const cells=[];
   const startDate=new Date(today);startDate.setDate(startDate.getDate()-(weeks*7-1));
-  const batchDays={};batches.forEach(b=>{const d=new Date(b.date||b.createdAt).toDateString();batchDays[d]=(batchDays[d]||0)+1});
+  const batchDays={};batches.forEach(batch=>{const date=parseDateValue(batch.date||batch.createdAt);if(!isValidDate(date))return;const key=date.toDateString();batchDays[key]=(batchDays[key]||0)+1});
   for(let i=0;i<weeks*7;i++){const d=new Date(startDate);d.setDate(d.getDate()+i);const key=d.toDateString();const count=batchDays[key]||0;const future=d>today;cells.push({date:d,count,future})}
   const rows=[[],[],[],[],[],[],[]];cells.forEach((c,i)=>rows[i%7].push(c));
   const colors=['#EBEDF0','#F7C97E','#E5960B','#C47A00','#8B5700'];
@@ -980,7 +1164,7 @@ function StatsCards({batches,recipes}){
   const avgOverall=totalBatches?Math.round(batches.reduce((s,b)=>s+(b.ratings?.overall||0),0)/totalBatches*10)/10:0;
   const cafeCount=batches.filter(b=>b.cafeWorthy).length;
   const uniqueRecipes=new Set(batches.map(b=>b.recipeId)).size;
-  const streak=(()=>{let s=0;const d=new Date();d.setHours(0,0,0,0);const bSet=new Set(batches.map(b=>new Date(b.date||b.createdAt).toDateString()));while(true){if(bSet.has(d.toDateString())){s++;d.setDate(d.getDate()-7)}else break}return s})();
+  const streak=(()=>{let s=0;const currentWeek=startOfWeek(new Date());const weekSet=new Set(batches.map(batch=>weekKey(batch.date||batch.createdAt)));while(true){const key=localDateInputValue(currentWeek);if(weekSet.has(key)){s++;currentWeek.setDate(currentWeek.getDate()-7)}else break}return s})();
   const stats=[
     {emoji:'🍦',label:'Total batches',value:totalBatches},
     {emoji:'⭐',label:'Avg rating',value:avgOverall||'—'},
@@ -998,7 +1182,7 @@ function StatsCards({batches,recipes}){
 function SkillProgression({batches,recipes}){
   const skills=[
     {key:'custard',label:'Custard Base',emoji:'🥚',milestones:['First custard batch','5 custard batches','Custard ≥4★','10 custard batches'],check:b=>{const cb=b.filter(x=>{const r=recipes.find(r=>r.id===x.recipeId);return r?.category==='traditional'||r?.category==='keto'});return[cb.length>=1,cb.length>=5,cb.some(x=>(x.ratings?.overall||0)>=4),cb.length>=10]}},
-    {key:'flavor',label:'Flavor Design',emoji:'🎨',milestones:['First non-vanilla','3 unique flavors','A flavor ≥4★','5 unique flavors'],check:b=>{const nb=b.filter(x=>{const r=recipes.find(r=>r.id===x.recipeId);return r&&!r.isBaseline});const uniqueFlavors=new Set(nb.map(x=>x.recipeId)).size;return[nb.length>=1,uniqueFlavors>=3,nb.some(x=>(x.ratings?.overall||0)>=4),uniqueFlavors>=5]}},
+    {key:'flavor',label:'Flavor Design',emoji:'🎨',milestones:['First flavor batch','3 unique flavors','A flavor ≥4★','5 unique flavors'],check:b=>{const flavored=b.filter(x=>{const r=recipes.find(r=>r.id===x.recipeId);if(!r)return false;const tags=(r.tags||[]).map(t=>t.toLowerCase());const name=(r.name||'').toLowerCase();return r.category==='sorbet'||['oreo','cookies-and-cream','strawberry','banana','fruit','mix-in'].some(tag=>tags.includes(tag))||['oreo','strawberry','banana','sorbet','cookie','fruit'].some(token=>name.includes(token))});const uniqueFlavors=new Set(flavored.map(x=>x.recipeId)).size;return[flavored.length>=1,uniqueFlavors>=3,flavored.some(x=>(x.ratings?.overall||0)>=4),uniqueFlavors>=5]}},
     {key:'texture',label:'Texture Control',emoji:'🧊',milestones:['Used a texture agent','Tried 2 agents','Agent batch ≥4★','Tried 3+ agents'],check:b=>{const ab=b.filter(x=>x.textureAgentUsed&&x.textureAgentUsed!=='none');const uniqueAgents=new Set(ab.map(x=>x.textureAgentUsed)).size;return[ab.length>=1,uniqueAgents>=2,ab.some(x=>(x.ratings?.overall||0)>=4),uniqueAgents>=3]}},
     {key:'keto',label:'Keto / Low Sugar',emoji:'🥑',milestones:['First keto batch','3 keto batches','Keto ≥4★','5 keto batches'],check:b=>{const kb=b.filter(x=>{const r=recipes.find(r=>r.id===x.recipeId);return r?.category==='keto'});return[kb.length>=1,kb.length>=3,kb.some(x=>(x.ratings?.overall||0)>=4),kb.length>=5]}},
     {key:'consistency',label:'Consistency',emoji:'📏',milestones:['Log 3 batches','Log 10 batches','3 cafe-worthy','Avg rating ≥4'],check:b=>{const avgR=b.length?b.reduce((s,x)=>s+(x.ratings?.overall||0),0)/b.length:0;return[b.length>=3,b.length>=10,b.filter(x=>x.cafeWorthy).length>=3,avgR>=4]}},
@@ -1059,26 +1243,25 @@ function ProgressTab({batches,recipes}){
 // ══════════════════════════════════════════════
 // BACKUP & RESTORE
 // ══════════════════════════════════════════════
-function BackupModal({open,onClose,recipes,batches,importRecipe}){
-  const[importText,setImportText]=useState('');const[importError,setImportError]=useState('');const[importMode,setImportMode]=useState('recipe');
+function BackupModal({open,onClose,recipes,customRecipes,batches,prefs,importRecipe,importRecipes,importBatches,onImportPreferences}){
+  const[importText,setImportText]=useState('');const[importError,setImportError]=useState('');
   const doExport=()=>{
-    const data={version:2,exportedAt:new Date().toISOString(),recipes,batches,preferences:S.get('icl-prefs')};
-    const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
-    const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`icecreamlab-backup-${new Date().toISOString().slice(0,10)}.json`;a.click();URL.revokeObjectURL(url);
+    const data={version:3,exportedAt:new Date().toISOString(),recipes,customRecipes,batches,preferences:prefs};
+    downloadJson(`icecreamlab-backup-${new Date().toISOString().slice(0,10)}.json`,data);
   };
   const doImport=()=>{
     try{
       const data=JSON.parse(importText);
-      if(data.version&&data.recipes){
-        // Full backup restore
-        if(data.recipes)data.recipes.forEach(r=>importRecipe(r));
-        if(data.batches){const existing=S.get('icl-batches')||[];S.set('icl-batches',[...existing,...data.batches])}
-        if(data.preferences)S.set('icl-prefs',data.preferences);
+      if(data.version&&(Array.isArray(data.recipes)||Array.isArray(data.customRecipes))){
+        const prefsSnapshot=data.preferences||prefs;
+        if(data.preferences) onImportPreferences?.(data.preferences);
+        if(Array.isArray(data.customRecipes)) importRecipes?.(data.customRecipes,{prefsSnapshot});
+        else if(Array.isArray(data.recipes)) importRecipes?.(data.recipes,{prefsSnapshot});
+        if(Array.isArray(data.batches)) importBatches?.(data.batches);
         setImportText('');setImportError('');onClose();
-        window.location.reload();
       }else if(data.name&&data.ingredients){
         // Single recipe import
-        importRecipe(data);setImportText('');setImportError('');onClose();
+        importRecipe(data,{prefsSnapshot:prefs});setImportText('');setImportError('');onClose();
       }else{setImportError('Unrecognized format')}
     }catch{setImportError('Invalid JSON')}
   };
@@ -1134,8 +1317,8 @@ function BottomNav({active,onChange,hidden}){
 // ══════════════════════════════════════════════
 function App(){
   const{prefs,save:savePrefs,isSetup}=usePreferences();
-  const{recipes,addRecipe,updateRecipe,deleteRecipe,duplicateRecipe,importRecipe}=useRecipes(prefs);
-  const{batches,addBatch,updateBatch,deleteBatch}=useBatches();
+  const{recipes,addRecipe,updateRecipe,deleteRecipe,duplicateRecipe,importRecipe,importRecipes,customRecipes}=useRecipes(prefs);
+  const{batches,addBatch,updateBatch,deleteBatch,importBatches}=useBatches();
 
   const[tab,setTab]=useState('recipes');
   const[isCooking,setIsCooking]=useState(false);
@@ -1174,7 +1357,7 @@ function App(){
       <BottomNav active={tab} onChange={t=>{setTab(t);setNavParams({})}} hidden={isCooking}/>
 
       {/* Backup modal */}
-      <BackupModal open={showBackup} onClose={()=>setShowBackup(false)} recipes={recipes} batches={batches} importRecipe={importRecipe}/>
+      <BackupModal open={showBackup} onClose={()=>setShowBackup(false)} recipes={recipes} customRecipes={customRecipes} batches={batches} prefs={prefs} importRecipe={importRecipe} importRecipes={importRecipes} importBatches={importBatches} onImportPreferences={savePrefs}/>
     </div>
   );
 }
@@ -1187,7 +1370,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 <script>
 if('serviceWorker' in navigator){
   window.addEventListener('load',()=>{
-    navigator.serviceWorker.register('/sw.js').catch(()=>{});
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
   });
 }
 </script>
