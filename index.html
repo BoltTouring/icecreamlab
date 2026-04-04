@@ -955,10 +955,10 @@ function RecipeDetail({recipe,batches,onBack,onEdit,onDuplicate,onDelete,onCook,
   const canAdjustYolk=recipeSupportsYolkScaling(recipe);
   const recipeYolkRef=getRecipeYolkReference(recipe);
   const[scale,setScale]=useState(recipe.servings);const[showDel,setShowDel]=useState(false);const[showMenu,setShowMenu]=useState(false);
-  const[yolkWeight,setYolkWeight]=useState(()=>Math.round(recipeYolkRef*(recipe.servings/300)));
+  const[yolkWeight,setYolkWeight]=useState(()=>Math.round(recipeYolkRef));
   const[yolkEdited,setYolkEdited]=useState(false);
   const[scaleInput,setScaleInput]=useState(String(recipe.servings));
-  const[yolkInput,setYolkInput]=useState(String(Math.round(recipeYolkRef*(recipe.servings/300))));
+  const[yolkInput,setYolkInput]=useState(String(Math.round(recipeYolkRef)));
   const avg=avgRating(batches,recipe.id);const count=batchCount(batches,recipe.id);
   const menuRef=useRef(null);
   const tempUnit=prefs?.tempUnit||'C';
@@ -974,8 +974,16 @@ function RecipeDetail({recipe,batches,onBack,onEdit,onDuplicate,onDelete,onCook,
     if(ing.category==='stabilizer')return Math.round(base*100)/100;
     return Math.round(base);
   };
-  const commitBatch=(v)=>{const val=+v||recipe.servings;setScale(val);setScaleInput(String(val));if(!yolkEdited){const y=Math.round(recipeYolkRef*(val/300));setYolkWeight(y);setYolkInput(String(y))}};
-  const commitYolk=(v)=>{const val=+v||yolkRef;setYolkWeight(val);setYolkInput(String(val));setYolkEdited(true)};
+  const commitBatch=(v)=>{const val=+v||recipe.servings;setScale(val);setScaleInput(String(val));if(!yolkEdited){const y=Math.round(recipeYolkRef*(val/(recipe.servings||300)));setYolkWeight(y);setYolkInput(String(y))}};
+  const commitYolk=(v)=>{
+    const val=+v||yolkRef;
+    const nextScale=Math.max(1,Math.round((recipe.servings||300)*(val/recipeYolkRef)));
+    setYolkWeight(val);
+    setYolkInput(String(val));
+    setScale(nextScale);
+    setScaleInput(String(nextScale));
+    setYolkEdited(false);
+  };
   const resetYolk=()=>{setYolkWeight(yolkRef);setYolkInput(String(yolkRef));setYolkEdited(false)};
   useEffect(()=>{if(!showMenu)return;const h=e=>{if(menuRef.current&&!menuRef.current.contains(e.target))setShowMenu(false)};document.addEventListener('pointerdown',h);return()=>document.removeEventListener('pointerdown',h)},[showMenu]);
   return(<div className="pb-20 fade-in">
@@ -1193,7 +1201,7 @@ function CookTab({recipes,batches,nav,initialRecipeId,initialBatchScale,initialY
   const[showPrefs,setShowPrefs]=useState(false);
   const[batchScale,setBatchScale]=useState(initialBatchScale||300);const[yolkWeight,setYolkWeight]=useState(initialYolkWeightG??YOLK_REF_G);
   const recipe=recipes.find(r=>r.id===selectedId);
-  const startCooking=(id,options={})=>{const r=recipes.find(x=>x.id===id);const sv=options.batchScale||r?.servings||300;const yolkRef=Math.round(getRecipeYolkReference(r)*(sv/300));setSelectedId(id);setBatchScale(sv);setYolkWeight(options.yolkWeightG??yolkRef);setCooking(true);onCookingChange?.(true)};
+  const startCooking=(id,options={})=>{const r=recipes.find(x=>x.id===id);const sv=options.batchScale||r?.servings||300;const yolkRef=Math.round(getRecipeYolkReference(r)*(sv/(r?.servings||300)));setSelectedId(id);setBatchScale(sv);setYolkWeight(options.yolkWeightG??yolkRef);setCooking(true);onCookingChange?.(true)};
   const stopCooking=()=>{setCooking(false);setSelectedId(null);onCookingChange?.(false)};
   useEffect(()=>{if(initialRecipeId){startCooking(initialRecipeId,{batchScale:initialBatchScale,yolkWeightG:initialYolkWeightG})}},[]);
   if(cooking&&recipe)return(<><CookMode recipe={recipe} prefs={prefs} onOpenPrefs={()=>setShowPrefs(true)} onExit={stopCooking} batchScale={batchScale} yolkWeight={yolkWeight} onLogBatch={(cookNotes)=>{stopCooking();try{localStorage.removeItem(`cook-notes-${recipe.id}`)}catch{};nav('log-add',{recipeId:recipe.id,cookNotes:cookNotes||'',yolkWeightG:yolkWeight,scaledFromBatchMl:batchScale})}}/><PreferencesSheet open={showPrefs} onClose={()=>setShowPrefs(false)} prefs={prefs} onSave={onPrefsChange}/></>);
