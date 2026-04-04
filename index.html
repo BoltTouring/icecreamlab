@@ -152,6 +152,7 @@ const BUILT_IN_CONFIGS={
   },
   'vanilla-50pct-sugar-001':{
     name:'Vanilla Custard (50% Sugar)',category:'experimental',
+    vanillaMultiplier:0.7,
     sweeteners:[
       {id:'hs01',name:'Granulated sugar',nameJa:'グラニュー糖',amount:23,unit:'g',category:'sweetener'},
       {id:'hs02',name:'Glucose syrup',nameJa:'水飴',amount:8,unit:'g',category:'sweetener'},
@@ -350,12 +351,20 @@ const BUILT_IN_CONFIGS={
 
 function resolveVariantIngredients(config,prefs){
   const ings=[...CUSTARD_BASE,...config.sweeteners];
-  if(config.fixedVanilla){ings.push(config.fixedVanilla.ingredient)}
-  else{const vi=VANILLA_INGREDIENTS[prefs.vanillaPreference||'paste'];if(vi) ings.push(vi)}
+  const vi=config.fixedVanilla?.ingredient||getVariantVanillaIngredient(config,prefs);
+  if(vi) ings.push(vi);
   if(config.mixIns) config.mixIns.forEach(m=>ings.push(m.ingredient));
   const ai=AGENT_INGREDIENTS[prefs.textureAgentPreference||'none'];
   if(ai){ings.push(ai);if(ai.extra)ings.push(ai.extra);}
   return ings;
+}
+
+function getVariantVanillaIngredient(config,prefs){
+  const base=VANILLA_INGREDIENTS[prefs.vanillaPreference||'paste'];
+  if(!base) return null;
+  const mult=config.vanillaMultiplier||1;
+  if(mult===1) return base;
+  return {...base,amount:typeof base.amount==='number'?Math.round(base.amount*mult*100)/100:base.amount};
 }
 
 function resolveVariantSteps(config,prefs){
@@ -363,11 +372,13 @@ function resolveVariantSteps(config,prefs){
   const v=hasFixedV?null:(prefs.vanillaPreference||'paste');
   const vanillaTiming=hasFixedV?config.fixedVanilla.timing:(v==='extract'?'post-cook':'heat');
   const t=prefs.textureAgentPreference||'none';
-  const vanillaHeatText=vanillaTiming==='heat'?(v==='bean'?'Add your vanilla bean — split lengthwise, scrape seeds into the pot, and drop the pod in too.':v==='paste'?'Stir in 6g vanilla bean paste.':''):'';
+  const vanillaIng=hasFixedV?config.fixedVanilla.ingredient:getVariantVanillaIngredient(config,prefs);
+  const vanillaMeasure=vanillaIng?`${vanillaIng.amount}${vanillaIng.unit}`:'';
+  const vanillaHeatText=vanillaTiming==='heat'?(v==='bean'?`Add ${vanillaIng?.amount||1} vanilla bean${vanillaIng?.amount===1?'':'s'} — split lengthwise, scrape seeds into the pot, and drop the pod in too.`:v==='paste'?`Stir in ${vanillaMeasure} vanilla bean paste.`:''):'';
   const vanillaNote=vanillaTiming!=='heat'?' Do not add vanilla yet — it will be added later.':'';
   const sugarNote=t==='commercial_stabilizer'?` The ${config.stabName} already has your stabilizer mixed in.`:'';
   const sweetHeat=config.sweetHeat.replace('{note}',sugarNote);const sweetIngIds=config.sweeteners.map(s=>s.id);
-  const vanillaIngId=hasFixedV?config.fixedVanilla.ingredient.id:(VANILLA_INGREDIENTS[v]?.id||null);
+  const vanillaIngId=vanillaIng?.id||null;
   const needsInfusion=vanillaTiming==='heat'&&(v==='bean'||v==='paste');
   const steps=[];
   // 1: Ice bath
@@ -394,7 +405,7 @@ function resolveVariantSteps(config,prefs){
   // 8: Tapioca starch (conditional)
   if(t==='tapioca_starch') steps.push({id:'bs8a',order:8,title:'Add tapioca starch',instruction:'Remove the custard from heat. Immediately whisk in the tapioca starch slurry. Stir well until fully incorporated.',timerSeconds:null,ingredients:['ai-ts','ai-ts-m'],condition:'tapioca_starch'});
   // 8 alt: Vanilla extract (conditional)
-  if(vanillaTiming==='post-cook') steps.push({id:'bs8b',order:8,title:'Add vanilla extract',instruction:'Stir in 6g vanilla extract now. Extract is added after cooking because heat destroys its delicate flavor compounds.',timerSeconds:null,ingredients:['vi-extract'],condition:'extract'});
+  if(vanillaTiming==='post-cook') steps.push({id:'bs8b',order:8,title:'Add vanilla extract',instruction:`Stir in ${vanillaMeasure} vanilla extract now. Extract is added after cooking because heat destroys its delicate flavor compounds.`,timerSeconds:null,ingredients:[vanillaIngId],condition:'extract'});
   // 9: Strain and cool
   steps.push({id:'bs9',order:9,title:'Strain and cool',instruction:`Immediately pour the custard through the fine-mesh strainer into the bowl sitting in the ice bath. Stir occasionally until custard is cool to the touch (below 10°C).`,timerSeconds:600,ingredients:[],condition:null});
   // 9b: Add vanilla after cooling (for recipes that specify post-cool timing)
@@ -442,7 +453,7 @@ const HALF_SUGAR_NOTES=`Reduced-sugar version that replaces half the sweetener w
 
 Formulation: 23g sugar + 8g glucose + 30g allulose (~61g total sweetener). The sugar and glucose provide familiar caramel notes and body; the allulose fills in sweetness and freezing point depression without the glycemic load.
 
-A good middle ground if full keto is too extreme but you want to reduce sugar intake.`;
+A good middle ground if full keto is too extreme but you want to reduce sugar intake. Vanilla is held 30% lower than the baseline vanilla setting so the finish stays cleaner.`;
 
 const LESS_SWEET_NOTES=`A subtly less sweet version of the baseline — all sweeteners reduced by 20%. Good for those who find the baseline too sweet, or who want the vanilla and dairy flavors to come through more prominently.
 
