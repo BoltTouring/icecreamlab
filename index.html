@@ -125,7 +125,7 @@ const AGENT_INGREDIENTS={
 };
 
 // ── Built-in recipe variant configs ──
-const BUILT_IN_IDS=[BASELINE_ID,'vanilla-keto-001','vanilla-50pct-sugar-001','vanilla-20pct-less-sweet-001','oreo-50pct-sugar-001','allulose-vanilla-001','allulose-strawberry-001','strawberry-mixed-sweetener-001','caramelized-banana-001'];
+const BUILT_IN_IDS=[BASELINE_ID,'vanilla-keto-001','vanilla-50pct-sugar-001','vanilla-20pct-less-sweet-001','oreo-50pct-sugar-001','reeses-pieces-balanced-001','allulose-vanilla-001','allulose-strawberry-001','strawberry-mixed-sweetener-001','caramelized-banana-001'];
 const BUILT_IN_CONFIGS={
   [BASELINE_ID]:{
     name:'Classic Vanilla Custard (Baseline)',category:'traditional',
@@ -191,6 +191,37 @@ const BUILT_IN_CONFIGS={
     tags:['oreo','cookies-and-cream','50-percent-sugar','allulose','mix-in'],
     source:{type:'custom',url:'',bookTitle:'',bookPage:'',
       rawText:'Oreo cookies & cream custard base with 50% sugar reduction via allulose. Vanilla bean paste added after cooling. Oreos folded in during last 5 minutes of churning.'},
+  },
+  'reeses-pieces-balanced-001':{
+    name:"REESE'S PIECES (Balanced Sweetness)",category:'experimental',
+    customIngredients:[
+      {id:'rp01',name:'Heavy cream 35%',nameJa:'純生クリーム 35%',amount:75,unit:'g',category:'dairy'},
+      {id:'rp02',name:'Whole milk',nameJa:'牛乳',amount:130,unit:'g',category:'dairy'},
+      {id:'rp03',name:'Egg yolks',nameJa:'卵黄',amount:30,unit:'g',category:'egg',isYolk:true},
+      {id:'rp04',name:'Granulated sugar',nameJa:'グラニュー糖',amount:12,unit:'g',category:'sweetener'},
+      {id:'rp05',name:'Glucose syrup',nameJa:'水飴',amount:4,unit:'g',category:'sweetener'},
+      {id:'rp06',name:'Allulose',nameJa:'アルロース',amount:12,unit:'g',category:'sweetener'},
+      {id:'rp07',name:"REESE'S PIECES (for blend)",nameJa:"REESE'S PIECES（ブレンド用）",amount:18,unit:'g',category:'other'},
+      {id:'rp08',name:"REESE'S PIECES (mix-in)",nameJa:"REESE'S PIECES（混ぜ込み用）",amount:18,unit:'g',category:'other'},
+      {id:'rp09',name:'Vanilla bean paste',nameJa:'バニラビーンズペースト',amount:1,unit:'g',category:'flavor'},
+      {id:'rp10',name:'Salt',nameJa:'塩',amount:1,unit:'g',category:'other'},
+    ],
+    customSteps:[
+      {id:'rp-s1',order:1,title:'Prepare ice bath',instruction:'Fill a large bowl two-thirds with ice water. Place a smaller bowl inside it and set a fine-mesh strainer over the inner bowl.',timerSeconds:null,ingredients:[],condition:null},
+      {id:'rp-s2',order:2,title:'Heat dairy and sweeteners',instruction:'Combine 75g cream, 130g milk, 12g sugar, 4g glucose syrup, 12g allulose, and 1g salt in a saucepan. Heat over medium, whisking occasionally, until sweeteners dissolve and the mixture is steaming.',timerSeconds:300,ingredients:['rp01','rp02','rp04','rp05','rp06','rp10'],condition:null},
+      {id:'rp-s3',order:3,title:'Whisk yolks',instruction:'Whisk 30g egg yolks in a bowl until smooth.',timerSeconds:null,ingredients:['rp03'],condition:null},
+      {id:'rp-s4',order:4,title:'Temper the eggs',instruction:'Slowly pour about half a cup of the hot dairy into the yolks while whisking constantly. Then pour the tempered yolks back into the pot while whisking.',timerSeconds:null,ingredients:[],condition:null},
+      {id:'rp-s5',order:5,title:'Cook the custard',instruction:'Cook on medium-low, stirring constantly, until the custard reaches 82–84°C and lightly coats the spatula.',timerSeconds:420,ingredients:[],condition:null},
+      {id:'rp-s6',order:6,title:'Strain and cool',instruction:'Strain through fine mesh into the ice-bath bowl. Stir occasionally until fully cold.',timerSeconds:600,ingredients:[],condition:null},
+      {id:'rp-s7',order:7,title:'Blend candy flavor into the base',instruction:"Blend 18g REESE'S PIECES with a few spoonfuls of the cold custard until mostly smooth; tiny shell flecks are fine. Stir that candy paste and 1g vanilla bean paste back into the custard.",timerSeconds:null,ingredients:['rp07','rp09'],condition:null},
+      {id:'rp-s8',order:8,title:'Cure overnight',instruction:'Press plastic wrap directly onto the surface. Refrigerate overnight (minimum 4 hours).',timerSeconds:null,ingredients:[],condition:null},
+      {id:'rp-s9',order:9,title:"Churn and add REESE'S PIECES",instruction:"Churn until the base looks like soft serve. In the last 3–5 minutes, add 18g roughly crushed REESE'S PIECES so you keep some crunch without turning the whole batch candy-sweet.",timerSeconds:1500,ingredients:['rp08'],condition:null},
+      {id:'rp-s10',order:10,title:'Harden',instruction:'Transfer to a container, press plastic wrap on the surface, and harden 3–4 hours before scooping.',timerSeconds:null,ingredients:[],condition:null},
+    ],
+    stats:{fatPercent:15,sweetenerPercent:15,totalSolidsPercent:40},
+    tags:['reeses-pieces','peanut-butter','candy','mix-in','balanced-sweetness','allulose','experimental'],
+    source:{type:'custom',url:'https://www.hersheyland.com/products/reeses-pieces-peanut-butter-candy-48-oz-bag.html',bookTitle:'',bookPage:'',
+      rawText:"Balanced REESE'S PIECES custard. Official Hershey nutrition lists about 16g sugar and 7g fat per 30g serving, so the base sweetener is cut back and the candy is split: half blended in for flavor, half folded in late for texture."},
   },
   'allulose-vanilla-001':{
     name:'Full Allulose Vanilla',category:'keto',
@@ -426,6 +457,14 @@ Tips:
 • If you want more intense Oreo flavor, scrape out the cream filling and stir it into the custard before churning, then fold in just the cookie pieces.
 • The Oreo pieces soften in the ice cream over time — best eaten within a week.`;
 
+const REESES_PIECES_NOTES=`Balanced REESE'S PIECES version built around the candy's own sweetness. Hershey lists roughly 16g sugar and 7g fat per 30g serving, so the base sweetener is deliberately lower than the vanilla 50% sugar batch.
+
+The split-candy approach is intentional: 18g gets blended into cold custard so the peanut-butter candy flavor runs through the whole batch, while another 18g goes in near the end of churning so you still get candy texture. Using all of it as mix-in makes the batch read sweeter and less peanut-buttery.
+
+Cream is pulled down to 75g and milk raised to 130g because the candy itself adds fat. That keeps the batch rich but not heavy. Vanilla is only 1g so it rounds the flavor instead of taking over.
+
+If it still tastes too sweet, drop the blended candy portion to 15g before cutting the base sweetener further. If you want more peanut-butter impact, increase the blended candy first and keep the mix-in amount the same.`;
+
 const ALLULOSE_VANILLA_NOTES=`Full allulose vanilla custard using the yolks-first method. 45g allulose as sole sweetener (~equivalent to 30–32g sugar in perceived sweetness). Vanilla bean paste (2g) added after cooling to preserve flavor.
 
 Key differences from baseline process: yolks and allulose are whisked together first, dairy heated to only ~70°C (steaming, not boiling), vanilla added post-cool.
@@ -460,7 +499,7 @@ Caramelize the banana well — you want golden brown on both sides for depth of 
 
 Vanilla bean paste bumped to 3g (up from 2g in Batch 3) for more presence.`;
 
-const VARIANT_NOTES={[BASELINE_ID]:BASELINE_NOTES,'vanilla-keto-001':KETO_NOTES,'vanilla-50pct-sugar-001':HALF_SUGAR_NOTES,'vanilla-20pct-less-sweet-001':LESS_SWEET_NOTES,'oreo-50pct-sugar-001':OREO_NOTES,'allulose-vanilla-001':ALLULOSE_VANILLA_NOTES,'allulose-strawberry-001':ALLULOSE_STRAWBERRY_NOTES,'strawberry-mixed-sweetener-001':MIXED_STRAWBERRY_NOTES,'caramelized-banana-001':CARAMELIZED_BANANA_NOTES};
+const VARIANT_NOTES={[BASELINE_ID]:BASELINE_NOTES,'vanilla-keto-001':KETO_NOTES,'vanilla-50pct-sugar-001':HALF_SUGAR_NOTES,'vanilla-20pct-less-sweet-001':LESS_SWEET_NOTES,'oreo-50pct-sugar-001':OREO_NOTES,'reeses-pieces-balanced-001':REESES_PIECES_NOTES,'allulose-vanilla-001':ALLULOSE_VANILLA_NOTES,'allulose-strawberry-001':ALLULOSE_STRAWBERRY_NOTES,'strawberry-mixed-sweetener-001':MIXED_STRAWBERRY_NOTES,'caramelized-banana-001':CARAMELIZED_BANANA_NOTES};
 
 function buildBuiltInRecipe(id,prefs){
   const config=BUILT_IN_CONFIGS[id];
