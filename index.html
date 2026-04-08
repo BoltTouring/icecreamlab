@@ -55,7 +55,8 @@ const RATING_LABELS={
 };
 const STORAGE_KEYS={prefs:'icl-prefs',legacyRecipes:'icl-recipes',customRecipes:'icl-custom-recipes',batches:'icl-batches'};
 const BUILT_IN_RECIPE_CREATED_AT='2026-02-08T00:00:00Z';
-const DEFAULT_PREFS={vanillaPreference:'paste',textureAgentPreference:'none',tempUnit:'C',defaultBatchSize:300,preferredYolkG:35};
+const PREFS_SCHEMA_VERSION=2;
+const DEFAULT_PREFS={vanillaPreference:'paste',textureAgentPreference:'tapioca_starch',tempUnit:'C',defaultBatchSize:300,preferredYolkG:35,schemaVersion:PREFS_SCHEMA_VERSION};
 const uid=()=>crypto.randomUUID();
 function parseDateValue(value){
   if(!value) return null;
@@ -75,7 +76,14 @@ function fmt(value){
   const parsed=parseDateValue(value);
   return isValidDate(parsed)?parsed.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
 }
-function normalizePrefs(prefs){return {...DEFAULT_PREFS,...(prefs||{})}}
+function normalizePrefs(prefs){return {...DEFAULT_PREFS,...(prefs||{}),schemaVersion:PREFS_SCHEMA_VERSION}}
+function migratePrefs(prefs){
+  if(!prefs) return null;
+  const normalized=normalizePrefs(prefs);
+  const storedVersion=Number(prefs.schemaVersion||0);
+  if(storedVersion<PREFS_SCHEMA_VERSION&&prefs.textureAgentPreference==='none') normalized.textureAgentPreference='tapioca_starch';
+  return normalized;
+}
 
 // ── Preferences constants ──
 const VANILLA_OPTIONS=[
@@ -88,7 +96,7 @@ const TEXTURE_AGENTS=[
   {key:'commercial_stabilizer',label:'Commercial stabilizer',desc:'Best texture (mixed with sugar before heating)'},
   {key:'guar_gum',label:'Guar gum',desc:'Least icy (blended into chilled custard)'},
   {key:'xanthan_gum',label:'Xanthan gum',desc:'Least icy (blended into chilled custard)'},
-  {key:'tapioca_starch',label:'Tapioca starch',desc:'Easiest to use (whisked in after cooking)'},
+  {key:'tapioca_starch',label:'Tapioca starch',desc:'Default: slurry, then cook 1 min more'},
   {key:'cornstarch',label:'Cornstarch',desc:'Most accessible (added before eggs, cook 1 min)'},
 ];
 const VANILLA_LABELS={bean:'Bean',paste:'Paste',extract:'Extract'};
@@ -122,7 +130,7 @@ const AGENT_INGREDIENTS={
   commercial_stabilizer:{id:'ai-cs',name:'Commercial ice cream stabilizer',nameJa:'アイスクリーム安定剤',amount:1,unit:'g',category:'stabilizer'},
   guar_gum:{id:'ai-gg',name:'Guar gum',nameJa:'グアーガム',amount:0.3,unit:'g',category:'stabilizer'},
   xanthan_gum:{id:'ai-xg',name:'Xanthan gum',nameJa:'キサンタンガム',amount:0.3,unit:'g',category:'stabilizer'},
-  tapioca_starch:{id:'ai-ts',name:'Tapioca starch',nameJa:'タピオカ澱粉',amount:1.5,unit:'g',category:'stabilizer',extra:{id:'ai-ts-m',name:'Cold milk (for slurry)',nameJa:'牛乳（スラリー用）',amount:6,unit:'g',category:'dairy'}},
+  tapioca_starch:{id:'ai-ts',name:'Tapioca starch',nameJa:'タピオカ澱粉',amount:2,unit:'g',category:'stabilizer',extra:{id:'ai-ts-m',name:'Cold milk (for slurry)',nameJa:'牛乳（スラリー用）',amount:8,unit:'g',category:'dairy'}},
   cornstarch:{id:'ai-cs2',name:'Cornstarch',nameJa:'コーンスターチ',amount:3,unit:'g',category:'stabilizer',extra:{id:'ai-cs2-m',name:'Cold milk (for slurry)',nameJa:'牛乳（スラリー用）',amount:6,unit:'g',category:'dairy'}},
 };
 
@@ -198,8 +206,8 @@ const BUILT_IN_CONFIGS={
   'reeses-pieces-balanced-001':{
     name:"REESE'S PIECES (Balanced Sweetness)",category:'experimental',
     customIngredients:[
-      {id:'rp01',name:'Heavy cream 35%',nameJa:'純生クリーム 35%',amount:75,unit:'g',category:'dairy'},
-      {id:'rp02',name:'Whole milk',nameJa:'牛乳',amount:130,unit:'g',category:'dairy'},
+      {id:'rp01',name:'Heavy cream 35%',nameJa:'純生クリーム 35%',amount:80,unit:'g',category:'dairy'},
+      {id:'rp02',name:'Whole milk',nameJa:'牛乳',amount:125,unit:'g',category:'dairy'},
       {id:'rp03',name:'Egg yolks',nameJa:'卵黄',amount:YOLK_REF_G,unit:'g',category:'egg',isYolk:true},
       {id:'rp04',name:'Granulated sugar',nameJa:'グラニュー糖',amount:12,unit:'g',category:'sweetener'},
       {id:'rp05',name:'Glucose syrup',nameJa:'水飴',amount:4,unit:'g',category:'sweetener'},
@@ -208,23 +216,27 @@ const BUILT_IN_CONFIGS={
       {id:'rp08',name:"REESE'S PIECES (mix-in)",nameJa:"REESE'S PIECES（混ぜ込み用）",amount:18,unit:'g',category:'other'},
       {id:'rp09',name:'Vanilla bean paste',nameJa:'バニラビーンズペースト',amount:1,unit:'g',category:'flavor'},
       {id:'rp10',name:'Salt',nameJa:'塩',amount:1,unit:'g',category:'other'},
+      {id:'rp11',name:'Tapioca starch',nameJa:'タピオカ澱粉',amount:2,unit:'g',category:'stabilizer'},
+      {id:'rp12',name:'Cold milk (for slurry)',nameJa:'牛乳（スラリー用）',amount:8,unit:'g',category:'dairy'},
     ],
     customSteps:[
       {id:'rp-s1',order:1,title:'Prepare ice bath',instruction:'Fill a large bowl two-thirds with ice water. Place a smaller bowl inside it and set a fine-mesh strainer over the inner bowl.',timerSeconds:null,ingredients:[],condition:null},
-      {id:'rp-s2',order:2,title:'Heat dairy and sweeteners',instruction:'Combine 75g cream, 130g milk, 12g sugar, 4g glucose syrup, 12g allulose, and 1g salt in a saucepan. Heat over medium, whisking occasionally, until sweeteners dissolve and the mixture is steaming.',timerSeconds:300,ingredients:['rp01','rp02','rp04','rp05','rp06','rp10'],condition:null},
-      {id:'rp-s3',order:3,title:'Whisk yolks',instruction:'Whisk egg yolks in a bowl until smooth.',timerSeconds:null,ingredients:['rp03'],condition:null},
-      {id:'rp-s4',order:4,title:'Temper the eggs',instruction:'Slowly pour about half a cup of the hot dairy into the yolks while whisking constantly. Then pour the tempered yolks back into the pot while whisking.',timerSeconds:null,ingredients:[],condition:null},
-      {id:'rp-s5',order:5,title:'Cook the custard',instruction:'Cook on medium-low, stirring constantly, until the custard reaches 82–84°C and lightly coats the spatula.',timerSeconds:420,ingredients:[],condition:null},
-      {id:'rp-s6',order:6,title:'Strain and cool',instruction:'Strain through fine mesh into the ice-bath bowl. Stir occasionally until fully cold.',timerSeconds:600,ingredients:[],condition:null},
-      {id:'rp-s7',order:7,title:'Blend candy flavor into the base',instruction:"Blend 18g REESE'S PIECES with a few spoonfuls of the cold custard until mostly smooth; tiny shell flecks are fine. Stir that candy paste and 1g vanilla bean paste back into the custard.",timerSeconds:null,ingredients:['rp07','rp09'],condition:null},
-      {id:'rp-s8',order:8,title:'Cure overnight',instruction:'Press plastic wrap directly onto the surface. Refrigerate overnight (minimum 4 hours).',timerSeconds:null,ingredients:[],condition:null},
-      {id:'rp-s9',order:9,title:"Churn and add REESE'S PIECES",instruction:"Churn until the base looks like soft serve. In the last 3–5 minutes, add 18g roughly crushed REESE'S PIECES so you keep some crunch without turning the whole batch candy-sweet.",timerSeconds:1500,ingredients:['rp08'],condition:null},
-      {id:'rp-s10',order:10,title:'Harden',instruction:'Transfer to a container, press plastic wrap on the surface, and harden 3–4 hours before scooping.',timerSeconds:null,ingredients:[],condition:null},
+      {id:'rp-s2',order:2,title:'Make tapioca slurry',instruction:'Whisk 2g tapioca starch with 8g cold milk until fully smooth. Set it aside and whisk again right before it goes into the custard.',timerSeconds:null,ingredients:['rp11','rp12'],condition:null},
+      {id:'rp-s3',order:3,title:'Heat dairy and sweeteners',instruction:'Combine 80g cream, 125g milk, 12g sugar, 4g glucose syrup, 12g allulose, and 1g salt in a saucepan. Heat over medium, whisking occasionally, until sweeteners dissolve and the mixture is steaming.',timerSeconds:300,ingredients:['rp01','rp02','rp04','rp05','rp06','rp10'],condition:null},
+      {id:'rp-s4',order:4,title:'Whisk yolks',instruction:'Whisk egg yolks in a bowl until smooth.',timerSeconds:null,ingredients:['rp03'],condition:null},
+      {id:'rp-s5',order:5,title:'Temper the eggs',instruction:'Slowly pour about half a cup of the hot dairy into the yolks while whisking constantly. Then pour the tempered yolks back into the pot while whisking.',timerSeconds:null,ingredients:[],condition:null},
+      {id:'rp-s6',order:6,title:'Cook the custard',instruction:'Cook on medium-low, stirring constantly, until the custard reaches about 78–80°C and lightly coats the spatula.',timerSeconds:360,ingredients:[],condition:null},
+      {id:'rp-s7',order:7,title:'Add slurry and finish',instruction:'Whisk the tapioca slurry again, stream it into the custard, and cook 60–90 seconds more until the base reaches 82–84°C and looks just slightly thicker.',timerSeconds:90,ingredients:['rp11','rp12'],condition:null},
+      {id:'rp-s8',order:8,title:'Strain and cool',instruction:'Strain through fine mesh into the ice-bath bowl. Stir occasionally until fully cold.',timerSeconds:600,ingredients:[],condition:null},
+      {id:'rp-s9',order:9,title:'Blend candy flavor into the base',instruction:"Blend 18g REESE'S PIECES with a few spoonfuls of the cold custard until mostly smooth; tiny shell flecks are fine. Stir that candy paste and 1g vanilla bean paste back into the custard.",timerSeconds:null,ingredients:['rp07','rp09'],condition:null},
+      {id:'rp-s10',order:10,title:'Cure overnight',instruction:'Press plastic wrap directly onto the surface. Refrigerate overnight (minimum 4 hours).',timerSeconds:null,ingredients:[],condition:null},
+      {id:'rp-s11',order:11,title:"Churn and add REESE'S PIECES",instruction:"Churn until the base looks like soft serve. In the last 3–5 minutes, add 18g roughly crushed REESE'S PIECES so you keep some crunch without turning the whole batch candy-sweet.",timerSeconds:1500,ingredients:['rp08'],condition:null},
+      {id:'rp-s12',order:12,title:'Harden',instruction:'Transfer to a container, press plastic wrap on the surface, and harden 3–4 hours before scooping.',timerSeconds:null,ingredients:[],condition:null},
     ],
     stats:{fatPercent:16,sweetenerPercent:15,totalSolidsPercent:41},
     tags:['reeses-pieces','peanut-butter','candy','mix-in','balanced-sweetness','allulose','experimental'],
     source:{type:'custom',url:'https://www.hersheyland.com/products/reeses-pieces-peanut-butter-candy-48-oz-bag.html',bookTitle:'',bookPage:'',
-      rawText:"Balanced REESE'S PIECES custard. Official Hershey nutrition lists about 16g sugar and 7g fat per 30g serving, so the base sweetener is cut back and the candy is split: half blended in for flavor, half folded in late for texture."},
+      rawText:"Balanced REESE'S PIECES custard. Official Hershey nutrition lists about 16g sugar and 7g fat per 30g serving, so the base sweetener is cut back and the candy is split: half blended in for flavor, half folded in late for texture. The dairy is nudged slightly richer and a tapioca slurry is finished into the hot custard for a smoother scoop."},
   },
   'allulose-vanilla-001':{
     name:'Full Allulose Vanilla',category:'keto',
@@ -292,8 +304,8 @@ const BUILT_IN_CONFIGS={
       {id:'sm06',name:'Fresh strawberries',nameJa:'いちご',amount:100,unit:'g',category:'other'},
       {id:'sm07',name:'Allulose (custard)',nameJa:'アルロース（カスタード用）',amount:16,unit:'g',category:'sweetener'},
       {id:'sm08',name:'Allulose (berries)',nameJa:'アルロース（ベリー用）',amount:5,unit:'g',category:'sweetener'},
-      {id:'sm09',name:'Tapioca starch',nameJa:'タピオカ澱粉',amount:1.5,unit:'g',category:'stabilizer'},
-      {id:'sm10',name:'Cold milk (for slurry)',nameJa:'牛乳（スラリー用）',amount:6,unit:'g',category:'dairy'},
+      {id:'sm09',name:'Tapioca starch',nameJa:'タピオカ澱粉',amount:2,unit:'g',category:'stabilizer'},
+      {id:'sm10',name:'Cold milk (for slurry)',nameJa:'牛乳（スラリー用）',amount:8,unit:'g',category:'dairy'},
       {id:'sm11',name:'Vanilla bean paste',nameJa:'バニラビーンズペースト',amount:2,unit:'g',category:'flavor'},
       {id:'sm12',name:'Salt',nameJa:'塩',amount:1,unit:'g',category:'other'},
     ],
@@ -302,7 +314,7 @@ const BUILT_IN_CONFIGS={
       {id:'sm-s2',order:2,title:'Macerate berries',instruction:'Toss the strawberries with 5g allulose in a small saucepan. Let sit 15–20 minutes until juicy.',timerSeconds:900,ingredients:['sm06','sm08'],condition:null},
       {id:'sm-s3',order:3,title:'Cook down berries',instruction:'Cook over medium heat, stirring often, until the berries collapse and reduce to a thick, jammy puree with very little free liquid, about 8–9 minutes.',timerSeconds:540,ingredients:[],condition:null},
       {id:'sm-s4',order:4,title:'Puree and strain',instruction:'Blend or mash smooth, then strain out the seeds. You want roughly 35–40g concentrated puree. Cool completely before using.',timerSeconds:null,ingredients:[],condition:null},
-      {id:'sm-s5',order:5,title:'Make tapioca slurry',instruction:'Whisk 1.5g tapioca starch with 6g cold milk until completely smooth.',timerSeconds:null,ingredients:['sm09','sm10'],condition:null},
+      {id:'sm-s5',order:5,title:'Make tapioca slurry',instruction:'Whisk 2g tapioca starch with 8g cold milk until completely smooth.',timerSeconds:null,ingredients:['sm09','sm10'],condition:null},
       {id:'sm-s6',order:6,title:'Heat dairy and sweeteners',instruction:'Combine 95g cream, 80g milk, 18g sugar, 6g glucose syrup, 16g allulose, and 1g salt in a saucepan. Heat over medium, whisking occasionally, until sweeteners dissolve and the mixture is steaming.',timerSeconds:300,ingredients:['sm01','sm02','sm04','sm05','sm07','sm12'],condition:null},
       {id:'sm-s7',order:7,title:'Whisk yolks',instruction:'Whisk egg yolks in a bowl until smooth.',timerSeconds:null,ingredients:['sm03'],condition:null},
       {id:'sm-s8',order:8,title:'Temper the eggs',instruction:'Slowly pour about half a cup of the hot dairy into the yolks while whisking constantly. Then pour the tempered yolks back into the pot while whisking.',timerSeconds:null,ingredients:[],condition:null},
@@ -412,7 +424,7 @@ function resolveVariantSteps(config,prefs){
   steps.push({id:'bs1',order:1,title:'Prepare ice bath',instruction:'Fill a large bowl two-thirds with ice water. Place a smaller metal or glass bowl inside it. Set a fine-mesh strainer (こし器) over the inner bowl. Set aside in fridge.',timerSeconds:null,ingredients:[],condition:null});
   // 2: Stabilizer prep (conditional)
   if(t==='commercial_stabilizer') steps.push({id:'bs2a',order:2,title:'Prepare stabilizer',instruction:`Mix 1g commercial stabilizer into ${config.stabLabel}, stirring well so it's evenly distributed. This will be added to the dairy in the next step.`,timerSeconds:null,ingredients:['ai-cs',config.stabId],condition:'commercial_stabilizer'});
-  if(t==='tapioca_starch') steps.push({id:'bs2b',order:2,title:'Prepare starch slurry',instruction:'In a small bowl, mix 1.5g tapioca starch with 6g cold milk. Stir until smooth with no lumps. Set aside — you\'ll add this after the custard is cooked.',timerSeconds:null,ingredients:['ai-ts','ai-ts-m'],condition:'tapioca_starch'});
+  if(t==='tapioca_starch') steps.push({id:'bs2b',order:2,title:'Prepare tapioca slurry',instruction:'In a small bowl, mix 2g tapioca starch with 8g cold milk. Stir until smooth with no lumps. Set aside — you\'ll whisk it in after the first cook, then heat the custard 60–90 seconds more to activate it.',timerSeconds:null,ingredients:['ai-ts','ai-ts-m'],condition:'tapioca_starch'});
   if(t==='cornstarch') steps.push({id:'bs2c',order:2,title:'Prepare starch slurry',instruction:'In a small bowl, mix 3g cornstarch with 6g cold milk. Stir until smooth with no lumps. Set aside — you\'ll add this to the hot dairy before the eggs.',timerSeconds:null,ingredients:['ai-cs2','ai-cs2-m'],condition:'cornstarch'});
   // 3: Heat dairy
   steps.push({id:'bs3',order:3,title:'Heat dairy and sweetener',instruction:`Combine 90g heavy cream, 120g milk, ${sweetHeat} in a medium saucepan. ${vanillaHeatText}${vanillaNote} Heat over medium, whisking occasionally, until the mixture comes to a gentle boil with small bubbles around the edges. Remove from heat.`,timerSeconds:300,ingredients:['vc01','vc02',...sweetIngIds,vanillaTiming==='heat'?vanillaIngId:null].filter(Boolean),condition:null});
@@ -430,7 +442,7 @@ function resolveVariantSteps(config,prefs){
   // 7: Cook custard
   steps.push({id:'bs7',order:7,title:'Cook the custard',instruction:'Place the pot over medium-low heat. Cook, stirring and scraping the bottom constantly with a rubber spatula to avoid curdling. When the custard thickens enough to coat the back of the spatula (a finger drawn across should leave a clean line), or reaches 80–85°C, immediately remove from heat. Do NOT let it boil.',timerSeconds:480,ingredients:[],condition:null});
   // 8: Tapioca starch (conditional)
-  if(t==='tapioca_starch') steps.push({id:'bs8a',order:8,title:'Add tapioca starch',instruction:'Remove the custard from heat. Immediately whisk in the tapioca starch slurry. Stir well until fully incorporated.',timerSeconds:null,ingredients:['ai-ts','ai-ts-m'],condition:'tapioca_starch'});
+  if(t==='tapioca_starch') steps.push({id:'bs8a',order:8,title:'Add tapioca slurry and finish',instruction:'Remove the custard from heat and whisk the tapioca slurry again. Stream it in while whisking, then return the pot to low heat and cook 60–90 seconds more, stirring constantly, until the base reaches 82–84°C and looks just slightly thicker.',timerSeconds:90,ingredients:['ai-ts','ai-ts-m'],condition:'tapioca_starch'});
   // 8 alt: Vanilla extract (conditional)
   if(vanillaTiming==='post-cook') steps.push({id:'bs8b',order:8,title:'Add vanilla extract',instruction:`Stir in ${vanillaMeasure} vanilla extract now. Extract is added after cooking because heat destroys its delicate flavor compounds.`,timerSeconds:null,ingredients:[vanillaIngId],condition:'extract'});
   // 9: Strain and cool
@@ -460,7 +472,7 @@ Formulation: ~12% fat, ~20% sweetener, ~40% total solids. Fat is lower than Häa
 Texture agents (from Dana Cree):
 • Best texture: Commercial stabilizer (mixed with sugar)
 • Least icy: Guar or xanthan gum (blended in after chilling)
-• Easiest to use: Tapioca starch (whisked in after cooking)
+• Easiest to use: Tapioca starch (slurried in, then cooked 1 min more)
 • Most accessible: Cornstarch (added before eggs, cooked 1 min)
 
 Recommendation: Try your first batch with NO texture agent to establish a true baseline, then add one on batch 2 to see the difference.
@@ -499,7 +511,7 @@ const REESES_PIECES_NOTES=`Balanced REESE'S PIECES version built around the cand
 
 The split-candy approach is intentional: 18g gets blended into cold custard so the peanut-butter candy flavor runs through the whole batch, while another 18g goes in near the end of churning so you still get candy texture. Using all of it as mix-in makes the batch read sweeter and less peanut-buttery.
 
-Cream is pulled down to 75g and milk raised to 130g because the candy itself adds fat. That keeps the batch rich but not heavy, and vanilla is only 1g so it rounds the flavor instead of taking over.
+Cream is only pulled back a little from the vanilla base: 80g cream and 125g milk keep the candy from making the batch feel heavy, but still land closer to the texture of your vanilla custard. The 2g tapioca slurry is there on purpose and should be cooked briefly after it goes in so the base tightens up without going gummy. Vanilla stays at 1g so it rounds the flavor instead of taking over.
 
 If it still tastes too sweet, drop the blended candy portion to 15g before cutting the base sweetener further. If you want more peanut-butter impact, increase the blended candy first and keep the mix-in amount the same.`;
 
@@ -523,7 +535,7 @@ const MIXED_STRAWBERRY_NOTES=`Strawberry version tuned for creaminess instead of
 
 Sweetener split is close to 50/50: 18g sugar + 6g glucose syrup for body and chew, plus 21g total allulose (16g in the custard + 5g with the berries) for extra freezing point depression. The strawberries add a little natural sugar on top.
 
-The 1.5g tapioca starch slurry is intentional. At this batch size it helps bind the extra fruit water without turning the base gummy, and it should give a noticeably creamier finish than the full-allulose strawberry.
+The 2g tapioca starch slurry is intentional. At this batch size it helps bind the extra fruit water without turning the base gummy, and it should give a noticeably creamier finish than the full-allulose strawberry.
 
 If the finished batch is still firmer than you want, add 3–5g more allulose to the custard next round. If strawberry flavor is too light, go to 110g berries but still cook them all the way down to a jammy 35–40g puree.`;
 
@@ -686,7 +698,7 @@ const S={
 function usePreferences(){
   const[prefs,setPrefs]=useState(()=>{
     const stored=S.get(STORAGE_KEYS.prefs);
-    return stored?normalizePrefs(stored):null;
+    return stored?migratePrefs(stored):null;
   });
   useEffect(()=>{if(prefs)S.set(STORAGE_KEYS.prefs,prefs)},[prefs]);
   const save=(p)=>setPrefs(normalizePrefs(p));
@@ -809,7 +821,7 @@ function buildBatchRecommendation(batch,recipe,allBatches){
   const scaledFrom=batch.scaledFromBatchMl||recipe?.servings||300;
   const targetYolk=Math.round(getRecipeYolkReference(recipe)*(scaledFrom/300));
   if(texture>0&&texture<=2){
-    if(ctx.isFruit&&ctx.hasTapioca) push('icy texture','Concentrate the fruit harder',ctx.isStrawberry?'Keep the strawberries very jammy and stop at about 35-40g finished puree. If it is still icy, bump tapioca starch from 1.5g to 2g.':'Cook the fruit down further before folding it in so you keep flavor but lose free water.',1);
+    if(ctx.isFruit&&ctx.hasTapioca) push('icy texture','Concentrate the fruit harder',ctx.isStrawberry?'Keep the strawberries very jammy and stop at about 35-40g finished puree. If it is still icy, bump tapioca starch from 2g to 2.5g.':'Cook the fruit down further before folding it in so you keep flavor but lose free water.',1);
     else if(ctx.isFruit) push('icy texture','Reduce fruit water before you add more sweetness','Use slightly less fruit or cook the fruit down further before mixing it into the base. Concentration will help more than simply adding sugar.',1);
     else if(!ctx.hasStabilizer&&batch.textureAgentUsed==='none') push('icy texture','Add a small texture assist','For the next round, add a light texture helper such as tapioca starch or guar gum instead of changing multiple ingredients at once.',1);
     else push('icy texture','Add a little more body','Increase solids slightly next round with a small glucose/allulose bump or a modest starch/stabilizer increase.',1);
@@ -883,7 +895,7 @@ function BackBtn({onClick,label}){return(<button onClick={onClick} className="fl
 // ── First Launch Setup ──
 function PreferencesSetup({onSave}){
   const[vanilla,setVanilla]=useState('paste');
-  const[agent,setAgent]=useState('none');
+  const[agent,setAgent]=useState(DEFAULT_PREFS.textureAgentPreference);
   const[preferredYolk,setPreferredYolk]=useState(35);
   return(
     <div className="min-h-screen bg-surface flex items-center justify-center p-6">
@@ -935,10 +947,10 @@ function PreferencesSetup({onSave}){
 function PreferencesSheet({open,onClose,prefs,onSave}){
   const normalized=normalizePrefs(prefs);
   const[vanilla,setVanilla]=useState(normalized.vanillaPreference||'paste');
-  const[agent,setAgent]=useState(normalized.textureAgentPreference||'none');
+  const[agent,setAgent]=useState(normalized.textureAgentPreference||DEFAULT_PREFS.textureAgentPreference);
   const[tempU,setTempU]=useState(normalized.tempUnit||'C');
   const[preferredYolk,setPreferredYolk]=useState(normalized.preferredYolkG||35);
-  useEffect(()=>{if(open){const current=normalizePrefs(prefs);setVanilla(current.vanillaPreference||'paste');setAgent(current.textureAgentPreference||'none');setTempU(current.tempUnit||'C');setPreferredYolk(current.preferredYolkG||35)}},[open,prefs]);
+  useEffect(()=>{if(open){const current=normalizePrefs(prefs);setVanilla(current.vanillaPreference||'paste');setAgent(current.textureAgentPreference||DEFAULT_PREFS.textureAgentPreference);setTempU(current.tempUnit||'C');setPreferredYolk(current.preferredYolkG||35)}},[open,prefs]);
   const handleSave=()=>{onSave({...normalized,vanillaPreference:vanilla,textureAgentPreference:agent,tempUnit:tempU,preferredYolkG:preferredYolk});onClose()};
   return(
     <Modal open={open} onClose={onClose} title="Preferences">
