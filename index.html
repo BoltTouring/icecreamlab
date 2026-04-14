@@ -135,7 +135,7 @@ const AGENT_INGREDIENTS={
 };
 
 // ── Built-in recipe variant configs ──
-const BUILT_IN_IDS=[BASELINE_ID,'vanilla-keto-001','vanilla-50pct-sugar-001','vanilla-20pct-less-sweet-001','oreo-50pct-sugar-001','walkers-butter-cookie-001','reeses-pieces-balanced-001','allulose-vanilla-001','allulose-strawberry-001','strawberry-mixed-sweetener-001','caramelized-banana-001'];
+const BUILT_IN_IDS=[BASELINE_ID,'vanilla-keto-001','vanilla-50pct-sugar-001','vanilla-20pct-less-sweet-001','oreo-50pct-sugar-001','walkers-butter-cookie-001','black-sesame-creamy-001','reeses-pieces-balanced-001','allulose-vanilla-001','allulose-strawberry-001','strawberry-mixed-sweetener-001','caramelized-banana-001'];
 const BUILT_IN_CONFIGS={
   [BASELINE_ID]:{
     name:'Classic Vanilla Custard (Baseline)',category:'traditional',
@@ -237,6 +237,42 @@ const BUILT_IN_CONFIGS={
     tags:['walkers','butter-cookie','shortbread','cookie','mix-in','experimental','allulose'],
     source:{type:'custom',url:'',bookTitle:'',bookPage:'',
       rawText:'Walkers butter cookie custard built off the vanilla 50% sugar texture target. The dairy and most of the sweetener system stay close to that successful base, while the cookies are split between a blended portion for flavor and a smaller late mix-in so the texture stays creamy.'},
+  },
+  'black-sesame-creamy-001':{
+    name:'Black Sesame (Creamy)',category:'experimental',
+    customIngredients:[
+      {id:'bsm01',name:'Heavy cream 35%',nameJa:'純生クリーム 35%',amount:80,unit:'g',category:'dairy'},
+      {id:'bsm02',name:'Whole milk',nameJa:'牛乳',amount:125,unit:'g',category:'dairy'},
+      {id:'bsm03',name:'Egg yolks',nameJa:'卵黄',amount:YOLK_REF_G,unit:'g',category:'egg',isYolk:true},
+      {id:'bsm04',name:'Granulated sugar',nameJa:'グラニュー糖',amount:18,unit:'g',category:'sweetener'},
+      {id:'bsm05',name:'Glucose syrup',nameJa:'水飴',amount:8,unit:'g',category:'sweetener'},
+      {id:'bsm06',name:'Allulose',nameJa:'アルロース',amount:24,unit:'g',category:'sweetener'},
+      {id:'bsm07',name:'Black sesame paste',nameJa:'黒ごまペースト',amount:18,unit:'g',category:'flavor'},
+      {id:'bsm08',name:'Toasted black sesame seeds',nameJa:'炒り黒ごま',amount:6,unit:'g',category:'flavor'},
+      {id:'bsm09',name:'Vanilla extract',nameJa:'バニラエクストラクト',amount:1,unit:'g',category:'flavor'},
+      {id:'bsm10',name:'Salt',nameJa:'塩',amount:1,unit:'g',category:'other'},
+      {id:'bsm11',name:'Tapioca starch',nameJa:'タピオカ澱粉',amount:2,unit:'g',category:'stabilizer'},
+      {id:'bsm12',name:'Cold milk (for slurry)',nameJa:'牛乳（スラリー用）',amount:8,unit:'g',category:'dairy'},
+    ],
+    customSteps:[
+      {id:'bsm-s1',order:1,title:'Prepare ice bath',instruction:'Fill a large bowl two-thirds with ice water. Place a smaller bowl inside it and set a fine-mesh strainer over the inner bowl.',timerSeconds:null,ingredients:[],condition:null},
+      {id:'bsm-s2',order:2,title:'Toast and grind sesame',instruction:'If the sesame seeds are not already well toasted, toast 6g black sesame seeds in a dry pan over medium heat until fragrant and just starting to pop. Cool slightly, then grind them very fine so they flavor the custard without leaving gritty bits.',timerSeconds:180,ingredients:['bsm08'],condition:null},
+      {id:'bsm-s3',order:3,title:'Make tapioca slurry',instruction:'Whisk 2g tapioca starch with 8g cold milk until fully smooth. Set it aside and whisk again right before it goes into the custard.',timerSeconds:null,ingredients:['bsm11','bsm12'],condition:null},
+      {id:'bsm-s4',order:4,title:'Heat dairy and sweeteners',instruction:'Combine 80g cream, 125g milk, 18g sugar, 8g glucose syrup, 24g allulose, and 1g salt in a saucepan. Heat over medium, whisking occasionally, until the sweeteners dissolve and the mixture is steaming.',timerSeconds:300,ingredients:['bsm01','bsm02','bsm04','bsm05','bsm06','bsm10'],condition:null},
+      {id:'bsm-s5',order:5,title:'Whisk yolks and sesame',instruction:'Whisk egg yolks, 18g black sesame paste, and the finely ground sesame seeds together until fully smooth and glossy. Break up any sesame-paste lumps now so the finished base stays silky.',timerSeconds:null,ingredients:['bsm03','bsm07','bsm08'],condition:null},
+      {id:'bsm-s6',order:6,title:'Temper the eggs',instruction:'Slowly pour about half a cup of the hot dairy into the yolk-sesame mixture while whisking constantly. Then pour the tempered mixture back into the pot while whisking.',timerSeconds:null,ingredients:[],condition:null},
+      {id:'bsm-s7',order:7,title:'Cook the custard',instruction:'Cook on medium-low, stirring constantly, until the custard reaches about 78–80°C and lightly coats the spatula.',timerSeconds:360,ingredients:[],condition:null},
+      {id:'bsm-s8',order:8,title:'Add slurry and finish',instruction:'Whisk the tapioca slurry again, stream it into the custard, and cook 60–90 seconds more until the base reaches 82–84°C and looks just slightly thicker.',timerSeconds:90,ingredients:['bsm11','bsm12'],condition:null},
+      {id:'bsm-s9',order:9,title:'Strain and cool',instruction:'Strain through fine mesh into the ice-bath bowl. Stir occasionally until fully cold.',timerSeconds:600,ingredients:[],condition:null},
+      {id:'bsm-s10',order:10,title:'Add vanilla and smooth out the base',instruction:'Stir in 1g vanilla extract once the custard is cold. If the sesame looks at all streaky, give the base 10–15 seconds with an immersion blender so it churns up perfectly smooth.',timerSeconds:null,ingredients:['bsm09'],condition:null},
+      {id:'bsm-s11',order:11,title:'Cure overnight',instruction:'Press plastic wrap directly onto the surface. Refrigerate overnight (minimum 4 hours).',timerSeconds:null,ingredients:[],condition:null},
+      {id:'bsm-s12',order:12,title:'Churn',instruction:'Churn until the base looks like soft serve and the sesame flavor is evenly carried through the whole batch, about 20–30 minutes.',timerSeconds:1500,ingredients:[],condition:null},
+      {id:'bsm-s13',order:13,title:'Harden',instruction:'Transfer to a container, press plastic wrap on the surface, and harden 3–4 hours before scooping.',timerSeconds:null,ingredients:[],condition:null},
+    ],
+    stats:{fatPercent:15,sweetenerPercent:16,totalSolidsPercent:43},
+    tags:['black-sesame','kurogoma','japanese','roasty','nutty','creamy','allulose','experimental'],
+    source:{type:'custom',url:'https://www.justonecookbook.com/black-sesame-ice-cream/',bookTitle:'',bookPage:'',
+      rawText:'Adapted from Namiko Hirasawa Chen’s Black Sesame Ice Cream. The original uses sugar, honey, black sesame paste, and toasted seeds; this version is rebuilt into the app’s yolk-scaled custard template with tapioca slurry and a mixed sugar/glucose/allulose system for a creamier, less icy finish.'},
   },
   'reeses-pieces-balanced-001':{
     name:"REESE'S PIECES (Balanced Sweetness)",category:'experimental',
@@ -550,6 +586,14 @@ The 2g tapioca slurry is there on purpose and should be cooked briefly after it 
 
 If the cookie flavor is too light, increase the blended cookie portion first. If it tastes too sweet, reduce the mix-in portion before cutting the base sweetener. Best within a week, before the cookie bits fully soften.`;
 
+const BLACK_SESAME_NOTES=`Black sesame is a good fit for your template because it brings huge flavor without the extra water that made some fruit directions icy. I adapted this from Just One Cookbook's black sesame ice cream, but rebuilt it around your creamy custard workflow instead of the lighter whipped-cream style finish.
+
+The texture anchor is closer to your best vanilla batch than to the candy recipes: 80g cream, 125g milk, your yolk-weight baseline, and the usual 2g tapioca slurry. Black sesame paste adds a lot of fat and solids on its own, so the dairy is only pulled back slightly and the sweetener is held lower than the vanilla 50% sugar recipe to keep the finish roasty instead of cloying.
+
+Using both sesame paste and finely ground toasted seeds is deliberate. The paste gives dense, rounded sesame flavor through the whole batch, while the ground seeds sharpen the aroma and deepen the color. Grind the seeds very fine; leaving them coarse is the fastest way to ruin the creamy texture.
+
+If you want more sesame impact, increase the paste first. If the batch tastes a little bitter or dry, reduce the ground seeds before touching the dairy or sweetener.`;
+
 const REESES_PIECES_NOTES=`Balanced REESE'S PIECES version built around the candy's own sweetness. Hershey lists roughly 16g sugar and 7g fat per 30g serving, so the base sweetener is deliberately lower than the vanilla 50% sugar batch.
 
 The split-candy approach is intentional: 18g gets blended into cold custard so the peanut-butter candy flavor runs through the whole batch, while another 18g goes in near the end of churning so you still get candy texture. Using all of it as mix-in makes the batch read sweeter and less peanut-buttery.
@@ -592,7 +636,7 @@ Caramelize the banana well — you want golden brown on both sides for depth of 
 
 Vanilla bean paste bumped to 3g (up from 2g in Batch 3) for more presence.`;
 
-const VARIANT_NOTES={[BASELINE_ID]:BASELINE_NOTES,'vanilla-keto-001':KETO_NOTES,'vanilla-50pct-sugar-001':HALF_SUGAR_NOTES,'vanilla-20pct-less-sweet-001':LESS_SWEET_NOTES,'oreo-50pct-sugar-001':OREO_NOTES,'walkers-butter-cookie-001':WALKERS_BUTTER_COOKIE_NOTES,'reeses-pieces-balanced-001':REESES_PIECES_NOTES,'allulose-vanilla-001':ALLULOSE_VANILLA_NOTES,'allulose-strawberry-001':ALLULOSE_STRAWBERRY_NOTES,'strawberry-mixed-sweetener-001':MIXED_STRAWBERRY_NOTES,'caramelized-banana-001':CARAMELIZED_BANANA_NOTES};
+const VARIANT_NOTES={[BASELINE_ID]:BASELINE_NOTES,'vanilla-keto-001':KETO_NOTES,'vanilla-50pct-sugar-001':HALF_SUGAR_NOTES,'vanilla-20pct-less-sweet-001':LESS_SWEET_NOTES,'oreo-50pct-sugar-001':OREO_NOTES,'walkers-butter-cookie-001':WALKERS_BUTTER_COOKIE_NOTES,'black-sesame-creamy-001':BLACK_SESAME_NOTES,'reeses-pieces-balanced-001':REESES_PIECES_NOTES,'allulose-vanilla-001':ALLULOSE_VANILLA_NOTES,'allulose-strawberry-001':ALLULOSE_STRAWBERRY_NOTES,'strawberry-mixed-sweetener-001':MIXED_STRAWBERRY_NOTES,'caramelized-banana-001':CARAMELIZED_BANANA_NOTES};
 
 function buildBuiltInRecipe(id,prefs){
   const config=BUILT_IN_CONFIGS[id];
