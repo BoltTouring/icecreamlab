@@ -1,4 +1,4 @@
-const CACHE_NAME = 'icecreamlab-v2';
+const CACHE_NAME = 'icecreamlab-v3';
 const APP_ROOT_URL = new URL('./', self.registration.scope).toString();
 const INDEX_URL = new URL('./index.html', self.registration.scope).toString();
 const MANIFEST_URL = new URL('./manifest.json', self.registration.scope).toString();
